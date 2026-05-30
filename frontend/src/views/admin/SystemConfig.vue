@@ -41,11 +41,24 @@
         <div class="config-row">
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
-            <div v-if="!llmApiKeyEditing" class="api-key-placeholder">
-              <span>{{ llmApiKeyMasked ? '已设置 API Key' : '未设置 API Key' }}</span>
-              <el-button size="small" @click="startApiKeyEdit('llm')">修改 API Key</el-button>
+            <div class="api-key-field">
+              <el-input
+                v-if="llmApiKeyEditing"
+                v-model="llmApiKey"
+                type="password"
+                show-password
+                placeholder="请输入新的 API Key"
+              />
+              <div v-else class="api-key-display">
+                <span class="api-key-masked">{{ llmApiKeyMasked ? 'sk-***********' : '未设置 API Key' }}</span>
+                <el-button v-if="llmApiKeyMasked" size="small" text @click="copyApiKey('llm')" title="复制">
+                  <el-icon><CopyDocument /></el-icon>
+                </el-button>
+              </div>
+              <el-button size="small" type="primary" link @click="startApiKeyEdit('llm')">
+                {{ llmApiKeyEditing ? '取消' : '修改' }}
+              </el-button>
             </div>
-            <el-input v-else v-model="llmApiKey" type="password" show-password placeholder="请输入新的 API Key" />
           </div>
           <div class="form-group">
             <label>Max Tokens</label>
@@ -116,9 +129,23 @@
             class="profile-item"
             @click="applyProfile(profile)"
           >
-            <div class="profile-name">{{ profile.name }}</div>
-            <div class="profile-meta">{{ profile.model }}</div>
-            <div class="profile-url">{{ profile.api_url }}</div>
+            <div class="profile-item-accent"></div>
+            <div class="profile-item-content">
+              <div class="profile-name">{{ profile.name }}</div>
+              <div class="profile-model">{{ profile.model }}</div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">Max Tokens</span>
+                <span class="profile-meta-value">{{ configs.LLM_MAX_TOKENS || 4096 }}</span>
+              </div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">Temperature</span>
+                <span class="profile-meta-value">{{ temperature }}</span>
+              </div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">Top-P</span>
+                <span class="profile-meta-value">{{ topP }}</span>
+              </div>
+            </div>
           </div>
           <div v-if="llmProfiles.length === 0" class="empty-profile">暂无保存的 LLM 模型</div>
         </div>
@@ -151,11 +178,24 @@
         <div class="config-row">
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
-            <div v-if="!embeddingApiKeyEditing" class="api-key-placeholder">
-              <span>{{ embeddingApiKeyMasked ? '已设置 API Key' : '未设置 API Key' }}</span>
-              <el-button size="small" @click="startApiKeyEdit('embedding')">修改 API Key</el-button>
+            <div class="api-key-field">
+              <el-input
+                v-if="embeddingApiKeyEditing"
+                v-model="embeddingApiKey"
+                type="password"
+                show-password
+                placeholder="请输入新的 API Key"
+              />
+              <div v-else class="api-key-display">
+                <span class="api-key-masked">{{ embeddingApiKeyMasked ? 'sk-***********' : '未设置 API Key' }}</span>
+                <el-button v-if="embeddingApiKeyMasked" size="small" text @click="copyApiKey('embedding')" title="复制">
+                  <el-icon><CopyDocument /></el-icon>
+                </el-button>
+              </div>
+              <el-button size="small" type="primary" link @click="startApiKeyEdit('embedding')">
+                {{ embeddingApiKeyEditing ? '取消' : '修改' }}
+              </el-button>
             </div>
-            <el-input v-else v-model="embeddingApiKey" type="password" show-password placeholder="请输入新的 API Key" />
           </div>
           <div class="form-group">
             <label>API Base URL <span class="required">*</span></label>
@@ -205,9 +245,23 @@
             class="profile-item"
             @click="applyProfile(profile)"
           >
-            <div class="profile-name">{{ profile.name }}</div>
-            <div class="profile-meta">{{ profile.model }} · {{ profile.dimension || DEFAULTS.EMBEDDING_DIM }}维</div>
-            <div class="profile-url">{{ profile.api_url }}</div>
+            <div class="profile-item-accent"></div>
+            <div class="profile-item-content">
+              <div class="profile-name">{{ profile.name }}</div>
+              <div class="profile-model">{{ profile.model }}</div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">向量维度</span>
+                <span class="profile-meta-value">{{ profile.dimension || DEFAULTS.EMBEDDING_DIM }}</span>
+              </div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">API</span>
+                <span class="profile-meta-value">{{ profile.model === 'BAAI/bge-m3' ? 'Embedding v3' : 'Embedding v2' }}</span>
+              </div>
+              <div class="profile-meta">
+                <span class="profile-meta-label">API Base URL</span>
+                <span class="profile-meta-value profile-url">{{ profile.api_url }}</span>
+              </div>
+            </div>
           </div>
           <div v-if="embeddingProfiles.length === 0" class="empty-profile">暂无保存的 Embedding 模型</div>
         </div>
@@ -440,7 +494,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Monitor, FolderOpened } from '@element-plus/icons-vue'
+import { Monitor, FolderOpened, CopyDocument } from '@element-plus/icons-vue'
 import request from '../../api/request'
 
 const activeTab = ref('llm')
@@ -462,14 +516,37 @@ const embeddingProfiles = computed(() => modelProfiles.value.filter(p => p.type 
 
 function startApiKeyEdit(type) {
   if (type === 'llm') {
+    if (llmApiKeyEditing.value) {
+      llmApiKeyEditing.value = false
+      llmApiKey.value = ''
+      return
+    }
     llmApiKey.value = ''
     llmApiKeyEditing.value = true
     llmApiKeyDirty.value = true
   }
   if (type === 'embedding') {
+    if (embeddingApiKeyEditing.value) {
+      embeddingApiKeyEditing.value = false
+      embeddingApiKey.value = ''
+      return
+    }
     embeddingApiKey.value = ''
     embeddingApiKeyEditing.value = true
     embeddingApiKeyDirty.value = true
+  }
+}
+
+async function copyApiKey(type) {
+  try {
+    const status = await request.get('/config/apikey-status')
+    const key = type === 'llm' ? status.llm_api_key : status.embedding_api_key
+    if (key) {
+      await navigator.clipboard.writeText(key)
+      ElMessage.success('API Key 已复制到剪贴板')
+    }
+  } catch {
+    ElMessage.warning('无法获取 API Key，请手动复制')
   }
 }
 
@@ -863,16 +940,17 @@ function resetConfig() {
   background: #fff;
   border-radius: 10px 10px 0 0;
   border-bottom: 1px solid #ebeef5;
-  padding: 0 24px;
+  padding: 0 8px;
 }
 
 .config-tab {
-  padding: 16px 24px;
+  padding: 14px 20px;
   font-size: 14px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   color: #909399;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .config-tab:hover {
@@ -882,20 +960,20 @@ function resetConfig() {
 .config-tab.active {
   color: #667eea;
   border-bottom-color: #667eea;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .config-card {
   background: #fff;
   border-radius: 0 0 10px 10px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  padding: 32px;
+  padding: 24px 32px;
   margin-bottom: 0;
 }
 
 .model-config-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 24px;
   align-items: start;
 }
@@ -906,9 +984,9 @@ function resetConfig() {
 
 .model-profile-panel {
   border: 1px solid #ebeef5;
-  border-radius: 8px;
-  padding: 16px;
-  background: #fafafa;
+  border-radius: 10px;
+  padding: 20px;
+  background: #fff;
 }
 
 .panel-header {
@@ -916,27 +994,30 @@ function resetConfig() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .panel-header h3 {
   margin: 0;
   font-size: 15px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .profile-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .profile-item {
-  padding: 12px;
+  display: flex;
   border: 1px solid #e4e7ed;
   border-radius: 8px;
   background: #fff;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s;
+  overflow: hidden;
 }
 
 .profile-item:hover {
@@ -944,37 +1025,96 @@ function resetConfig() {
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.12);
 }
 
+.profile-item-accent {
+  width: 4px;
+  background: linear-gradient(180deg, #667eea, #764ba2);
+  flex-shrink: 0;
+}
+
+.profile-item-content {
+  flex: 1;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
 .profile-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #303133;
+  margin-bottom: 2px;
 }
 
-.profile-meta,
-.profile-url,
-.empty-profile {
-  margin-top: 4px;
+.profile-model {
   font-size: 12px;
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.profile-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.profile-meta-label {
+  color: #909399;
+}
+
+.profile-meta-value {
+  color: #606266;
+  font-weight: 500;
+}
+
+.profile-url {
+  font-size: 11px;
   color: #909399;
   word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.api-key-placeholder {
+.empty-profile {
+  font-size: 13px;
+  color: #909399;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.api-key-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-key-field :deep(.el-input) {
+  flex: 1;
+}
+
+.api-key-display {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px dashed #dcdfe6;
+  border: 1px solid #dcdfe6;
   border-radius: 6px;
-  color: #606266;
   background: #fafafa;
   font-size: 13px;
 }
 
+.api-key-masked {
+  color: #606266;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
 .config-section {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .config-section:last-child {
@@ -982,12 +1122,13 @@ function resetConfig() {
 }
 
 .config-section h3 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #303133;
 }
 
 .config-section h3 .badge {
@@ -1025,6 +1166,7 @@ function resetConfig() {
   color: #606266;
   margin-bottom: 6px;
   font-weight: 500;
+  line-height: 1.4;
 }
 
 .form-group label .tip {
@@ -1142,5 +1284,6 @@ function resetConfig() {
   gap: 12px;
   margin-top: 24px;
   border-radius: 0 0 10px 10px;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
 }
 </style>
