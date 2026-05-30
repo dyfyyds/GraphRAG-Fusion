@@ -204,28 +204,30 @@ function toggleSelectAll(val) {
 
 async function loadData() {
   try {
-    const convs = await request.get('/conversations')
-    const convList = Array.isArray(convs) ? convs : (convs.items || [])
+    const result = await request.get('/conversations/admin', { params: { page: 1, size: 100 } })
+    const convList = result.items || []
     const all = []
     const users = new Set()
-    for (const c of convList.slice(0, 50)) {
-      const msgs = await request.get(`/conversations/${c.id}/messages`)
-      const msgList = Array.isArray(msgs) ? msgs : (msgs.items || [])
-      for (const m of msgList) {
-        if (m.role === 'user') {
-          m.conversation_id = c.id
-          m.username = c.username || m.username || ''
-          m.sources = m.sources || (c.sources ? c.sources.join(', ') : '')
-          m.source_list = m.source_list || c.source_list || []
-          m.answer = m.answer || ''
-          all.push(m)
-          if (m.username) users.add(m.username)
-        }
-      }
+    for (const c of convList) {
+      // AdminConversationOut already contains question, answer, sources, feedback
+      all.push({
+        id: c.id,
+        content: c.question || c.title,
+        answer: c.answer || '',
+        username: c.username || '',
+        sources: c.sources ? (c.sources.items || []).map(s => s.document_name || '未知来源').join(', ') : '',
+        source_list: c.sources ? (c.sources.items || []) : [],
+        feedback: c.feedback === 1 ? 'positive' : c.feedback === -1 ? 'negative' : null,
+        created_at: c.created_at,
+        conversation_id: c.id,
+      })
+      if (c.username) users.add(c.username)
     }
     messages.value = all
     userList.value = Array.from(users)
-  } catch {}
+  } catch (e) {
+    console.error('Failed to load admin history:', e)
+  }
 }
 
 function showDetail(row) {

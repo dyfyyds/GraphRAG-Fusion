@@ -12,6 +12,10 @@ request.interceptors.request.use((config) => {
   if (userStore.token) {
     config.headers.Authorization = `Bearer ${userStore.token}`
   }
+  // Ensure Content-Type is set for JSON requests
+  if (!config.headers['Content-Type'] && config.data && typeof config.data === 'object') {
+    config.headers['Content-Type'] = 'application/json'
+  }
   return config
 })
 

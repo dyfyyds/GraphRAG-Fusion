@@ -899,11 +899,11 @@ async function saveConfig() {
 
     payloads.push({ key: 'model_profiles', value: JSON.stringify(modelProfiles.value) })
 
-    // API keys
-    if (llmApiKeyDirty.value && llmApiKey.value) {
+    // API keys - 只要进入编辑模式且有值就保存
+    if (llmApiKeyEditing.value && llmApiKey.value) {
       payloads.push({ key: 'llm_api_key', value: llmApiKey.value })
     }
-    if (embeddingApiKeyDirty.value && embeddingApiKey.value) {
+    if (embeddingApiKeyEditing.value && embeddingApiKey.value) {
       payloads.push({ key: 'embedding_api_key', value: embeddingApiKey.value })
     }
 

@@ -30,7 +30,7 @@ class AdminConversationOut(BaseModel):
     question: str = ""
     answer: str = ""
     sources: dict | None = None
-    feedback: int = 0
+    feedback: int | None = 0
     created_at: datetime
 
     class Config:
@@ -51,7 +51,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     sources: dict | None = None
-    feedback: int = 0
+    feedback: int | None = 0
     created_at: datetime
 
     class Config:
