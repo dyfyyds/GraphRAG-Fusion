@@ -37,18 +37,6 @@
           登 录
         </el-button>
       </el-form>
-
-      <div class="demo-accounts">
-        <h4>演示账号（点击自动填充并登录）</h4>
-        <div class="demo-account" @click="fillAndLogin('admin', 'admin123')">
-          <span>admin / admin123</span>
-          <span class="role-tag admin">管理员</span>
-        </div>
-        <div class="demo-account" @click="fillAndLogin('user', 'user123')">
-          <span>user / user123</span>
-          <span class="role-tag user">普通用户</span>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -93,12 +81,6 @@ async function handleLogin() {
     loading.value = false
   }
 }
-
-function fillAndLogin(username, password) {
-  form.username = username
-  form.password = password
-  handleLogin()
-}
 </script>
 
 <style scoped>
@@ -112,32 +94,32 @@ function fillAndLogin(username, password) {
 }
 
 .login-card {
-  width: 420px;
+  width: 400px;
   background: #fff;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  padding: 40px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 36px 40px;
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 36px;
+  margin-bottom: 32px;
 }
 
 .logo {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   background: linear-gradient(135deg, #667eea, #764ba2);
-  border-radius: 16px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .logo svg {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
 }
 
 .login-title {
@@ -150,7 +132,7 @@ function fillAndLogin(username, password) {
 .login-subtitle {
   font-size: 13px;
   color: #909399;
-  margin-top: 6px;
+  margin-top: 8px;
   margin-bottom: 0;
 }
 
@@ -163,11 +145,21 @@ function fillAndLogin(username, password) {
   font-size: 14px;
   color: #606266;
   margin-bottom: 6px;
+  font-weight: 500;
 }
 
 .login-card :deep(.el-input__wrapper) {
   border-radius: 8px;
   height: 44px;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+}
+
+.login-card :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #c0c4cc inset;
+}
+
+.login-card :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #667eea inset;
 }
 
 .login-card :deep(.el-input__prefix .el-icon) {
@@ -197,62 +189,11 @@ function fillAndLogin(username, password) {
   border-radius: 8px;
   font-size: 16px;
   font-weight: 500;
-  background: #667eea;
-  border-color: #667eea;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
 }
 
 .login-btn:hover {
-  background: #5a6fd6;
-  border-color: #5a6fd6;
-}
-
-.demo-accounts {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #ebeef5;
-}
-
-.demo-accounts h4 {
-  font-size: 13px;
-  color: #909399;
-  font-weight: 400;
-  margin-bottom: 12px;
-}
-
-.demo-account {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: #f5f7fa;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.demo-account:hover {
-  background: #ecf5ff;
-}
-
-.demo-account span {
-  font-size: 13px;
-  color: #606266;
-}
-
-.role-tag {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.role-tag.admin {
-  background: #fef0f0;
-  color: #f56c6c;
-}
-
-.role-tag.user {
-  background: #ecf5ff;
-  color: #409eff;
+  background: linear-gradient(135deg, #5a6fd6 0%, #6a4293 100%);
 }
 </style>
