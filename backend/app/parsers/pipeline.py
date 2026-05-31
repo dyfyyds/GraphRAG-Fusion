@@ -8,6 +8,7 @@ from app.parsers.txt_parser import TxtParser
 from app.parsers.md_parser import MdParser
 from app.parsers.chunker import chunk_text
 from app.core.embedding_client import get_embedding_client
+from app.core.runtime_config import get_chunk_runtime_config
 from app.db.chroma import get_or_create_collection
 from app.db.mysql import async_session
 from app.models.chunk import Chunk
@@ -47,7 +48,19 @@ async def process_document(file_path: str, document_id: int) -> ParsedContent:
     content = await asyncio.to_thread(parser_cls().parse, file_path)
 
     # 2. 分块
-    chunks = chunk_text(content.text)
+    chunk_config = await get_chunk_runtime_config()
+    chunks = chunk_text(
+        content.text,
+        max_tokens=chunk_config.chunk_size,
+        overlap=chunk_config.chunk_overlap,
+    )
+    if chunk_config.min_chunk_size:
+        chunks = [
+            chunk for chunk in chunks
+            if len(chunk.strip()) >= chunk_config.min_chunk_size
+        ]
+    if not chunks and content.text.strip():
+        chunks = [content.text.strip()[:chunk_config.chunk_size]]
 
     # 3. Embedding（批量）
     embedding_client = get_embedding_client()

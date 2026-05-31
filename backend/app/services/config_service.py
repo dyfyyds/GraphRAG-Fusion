@@ -12,7 +12,7 @@ CACHE_TTL = 60
 # Section-to-key-prefix mapping used to group config keys into logical sections
 SECTION_PREFIXES: dict[str, list[str]] = {
     "llm": ["llm_model", "llm_config", "llm_api_key", "kg_config", "model_profiles"],
-    "embedding": ["embedding_model"],
+    "embedding": ["embedding_model", "embedding_api_key", "model_profiles"],
     "retrieval": ["retrieval_config"],
     "parsing": ["chunk_config", "upload_config"],
     "system": [],  # virtual section — health info, not config keys
@@ -66,7 +66,10 @@ async def batch_update_config(db: AsyncSession, configs: dict[str, str]) -> list
         if config:
             config.config_value = value
             _cache.pop(key, None)
-            updated.append(config)
+        else:
+            config = SystemConfig(config_key=key, config_value=value, description=f"Auto-created: {key}")
+            db.add(config)
+        updated.append(config)
     await db.commit()
     for c in updated:
         await db.refresh(c)
