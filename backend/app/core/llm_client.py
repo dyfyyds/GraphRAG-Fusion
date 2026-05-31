@@ -3,8 +3,6 @@ import asyncio
 import json
 from typing import AsyncGenerator
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
 from app.core.runtime_config import get_llm_runtime_config, LLMRuntimeConfig
 
 
@@ -23,29 +21,39 @@ class LLMClient:
     async def _config(self) -> LLMRuntimeConfig:
         return await get_llm_runtime_config()
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
-    )
-    async def chat(self, messages: list[dict], temperature: float = 0.7) -> str:
+    async def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        timeout: int | None = None,
+        retries: int = 3,
+        no_timeout: bool = False,
+    ) -> str:
         config = await self._config()
-        async with httpx.AsyncClient(timeout=config.timeout) as client:
-            resp = await client.post(
-                config.api_url,
-                headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": config.model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "top_p": config.top_p,
-                    "max_tokens": config.max_tokens,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        attempts = max(1, retries)
+        client_timeout = None if no_timeout else (timeout if timeout is not None else config.timeout)
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(timeout=client_timeout) as client:
+                    resp = await client.post(
+                        config.api_url,
+                        headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": config.model,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "top_p": config.top_p,
+                            "max_tokens": config.max_tokens,
+                            "stream": False,
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if attempt >= attempts - 1:
+                    raise
+                await asyncio.sleep(min(10, 2 ** attempt))
 
     async def chat_stream(self, messages: list[dict], temperature: float = 0.7) -> AsyncGenerator[str, None]:
         attempt = 0

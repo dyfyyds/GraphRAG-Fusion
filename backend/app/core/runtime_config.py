@@ -31,6 +31,14 @@ class EmbeddingRuntimeConfig:
     model: str
     dimension: int
     timeout: int
+    batch_size: int
+
+
+@dataclass(frozen=True)
+class ChunkRuntimeConfig:
+    chunk_size: int
+    chunk_overlap: int
+    min_chunk_size: int
 
 
 def _json_value(raw: dict[str, str], key: str) -> dict[str, Any]:
@@ -69,7 +77,8 @@ def parse_llm_config(raw: dict[str, str], settings=None) -> LLMRuntimeConfig:
     if legacy_llm_model and not llm_config:
         llm_config = legacy_llm_model
     api_url = llm_config.get("api_url") or raw.get("llm_api_url") or settings.LLM_API_URL
-    api_key = raw.get("llm_api_key") or settings.LLM_API_KEY
+    api_key_ref = llm_config.get("api_key_ref")
+    api_key = (raw.get(api_key_ref) if api_key_ref else None) or raw.get("llm_api_key") or settings.LLM_API_KEY
     model = llm_config.get("model") or (raw.get("llm_model") if not legacy_llm_model else None) or settings.LLM_MODEL
 
     return LLMRuntimeConfig(
@@ -87,7 +96,8 @@ def parse_embedding_config(raw: dict[str, str], settings=None) -> EmbeddingRunti
     settings = settings or get_settings()
     embedding_config = _json_value(raw, "embedding_model")
     api_url = embedding_config.get("api_url") or raw.get("embedding_api_url") or settings.EMBEDDING_API_URL
-    api_key = raw.get("embedding_api_key") or settings.EMBEDDING_API_KEY
+    api_key_ref = embedding_config.get("api_key_ref")
+    api_key = (raw.get(api_key_ref) if api_key_ref else None) or raw.get("embedding_api_key") or settings.EMBEDDING_API_KEY
     model = embedding_config.get("model") or settings.EMBEDDING_MODEL
 
     return EmbeddingRuntimeConfig(
@@ -96,6 +106,24 @@ def parse_embedding_config(raw: dict[str, str], settings=None) -> EmbeddingRunti
         model=model,
         dimension=int(embedding_config.get("dimension", settings.EMBEDDING_DIM)),
         timeout=int(getattr(settings, "EMBEDDING_TIMEOUT", 30)),
+        batch_size=int(embedding_config.get("batch_size", 64)),
+    )
+
+
+def parse_chunk_config(raw: dict[str, str]) -> ChunkRuntimeConfig:
+    chunk_config = _json_value(raw, "chunk_config")
+    chunk_size = int(chunk_config.get("chunk_size", 512))
+    chunk_overlap = int(chunk_config.get("chunk_overlap", 64))
+    min_chunk_size = int(chunk_config.get("min_chunk_size", 100))
+
+    chunk_size = min(max(chunk_size, 64), 4096)
+    chunk_overlap = min(max(chunk_overlap, 0), max(chunk_size - 1, 0))
+    min_chunk_size = min(max(min_chunk_size, 0), chunk_size)
+
+    return ChunkRuntimeConfig(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        min_chunk_size=min_chunk_size,
     )
 
 
@@ -111,6 +139,10 @@ async def get_llm_runtime_config() -> LLMRuntimeConfig:
 
 async def get_embedding_runtime_config() -> EmbeddingRuntimeConfig:
     return parse_embedding_config(await load_raw_runtime_config())
+
+
+async def get_chunk_runtime_config() -> ChunkRuntimeConfig:
+    return parse_chunk_config(await load_raw_runtime_config())
 
 
 def mask_config_items(items) -> list[ConfigOut]:

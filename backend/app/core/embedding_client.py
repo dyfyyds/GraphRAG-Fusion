@@ -41,7 +41,9 @@ class EmbeddingClient:
             data = resp.json()
             return data["data"][0]["embedding"]
 
-    async def embed_batch(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str], batch_size: int | None = None) -> list[list[float]]:
+        config = await self._config()
+        batch_size = max(1, int(batch_size or config.batch_size))
         results = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
