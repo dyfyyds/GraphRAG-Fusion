@@ -4,6 +4,10 @@ export function loginApi(username, password) {
   return request.post('/auth/login', { username, password })
 }
 
+export function registerApi(username, password, email) {
+  return request.post('/auth/register', { username, password, email: email || null })
+}
+
 export function getMeApi() {
   return request.get('/auth/me')
 }

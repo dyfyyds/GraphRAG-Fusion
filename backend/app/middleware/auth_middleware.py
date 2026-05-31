@@ -6,6 +6,7 @@ from app.utils.security import decode_jwt
 
 EXEMPT_PATHS = {
     "/api/auth/login",
+    "/api/auth/register",
     "/api/health",
     "/docs",
     "/openapi.json",

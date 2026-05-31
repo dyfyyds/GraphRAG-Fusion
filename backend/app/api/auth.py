@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.mysql import get_db
 from app.dependencies import get_current_user
-from app.schemas.auth import LoginRequest, TokenResponse, UserOut
-from app.services import auth_service
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.services import auth_service, user_service
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
@@ -12,6 +12,12 @@ router = APIRouter(prefix="/api/auth", tags=["认证"])
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     return await auth_service.login(db, body.username, body.password)
+
+
+@router.post("/register", response_model=TokenResponse)
+async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    user = await user_service.create_user(db, body.username, body.password, body.email, "user")
+    return await auth_service.login(db, user.username, body.password)
 
 
 @router.post("/logout")
