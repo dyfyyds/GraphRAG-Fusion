@@ -212,11 +212,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as d3 from 'd3'
 import GraphToolbar from '../../components/graph/GraphToolbar.vue'
 import request from '../../api/request'
+import { on } from '../../utils/eventBus'
+import { subscribeDocumentEvents } from '../../utils/documentEvents'
 
 const graphRef = ref()
 const selectedEntity = ref(null)
@@ -231,6 +233,7 @@ const rightPanelCollapsed = ref(false)
 let simulation = null
 let svg = null
 let zoomBehavior = null
+let lastDocumentSignature = ''
 
 const newEntity = ref({ name: '', entity_type: 'Product', description: '' })
 const newRelation = ref({ source: '', target: '', relation_type: '包含', description: '' })
@@ -682,7 +685,37 @@ async function submitRelation() {
 
 watch(typeFilter, () => loadGraph())
 
-onMounted(() => loadGraph())
+// 监听文档更新事件，自动刷新图谱
+const unsubscribe = on('documents:updated', () => {
+  console.log('[KnowledgeGraph] Received documents:updated event, refreshing graph...')
+  loadGraph()
+})
+
+let unsubscribeDocumentEvents = null
+
+function handleDocumentEvent(docs) {
+  const signature = JSON.stringify(docs.map(d => [d.id, d.status, d.chunk_count, d.error_message || '']))
+  if (!lastDocumentSignature) {
+    lastDocumentSignature = signature
+    return
+  }
+  if (signature === lastDocumentSignature) return
+
+  lastDocumentSignature = signature
+  loadGraph()
+}
+
+onMounted(() => {
+  loadGraph()
+  unsubscribeDocumentEvents = subscribeDocumentEvents(({ event, data }) => {
+    if (event !== 'documents') return
+    handleDocumentEvent(data.items || [])
+  })
+})
+onUnmounted(() => {
+  unsubscribe()
+  unsubscribeDocumentEvents?.()
+})
 </script>
 
 <style scoped>

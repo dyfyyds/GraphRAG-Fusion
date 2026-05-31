@@ -181,6 +181,19 @@ async def delete_by_document(document_id: int) -> dict:
     return result
 
 
+async def delete_all_entities() -> dict:
+    """清空 Neo4j 所有节点和关系"""
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(10):
+            async with driver.session() as session:
+                await session.run("MATCH (n) DETACH DELETE n")
+                return {"success": True, "message": "已清空所有图谱节点"}
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"清空Neo4j失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
 async def get_graph_stats() -> dict:
     driver = await get_neo4j_driver()
     try:

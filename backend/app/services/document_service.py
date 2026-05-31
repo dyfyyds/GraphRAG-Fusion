@@ -122,46 +122,85 @@ async def get_document_stats(db: AsyncSession) -> dict:
 
 async def delete_document(db: AsyncSession, doc_id: int):
     doc = await get_document(db, doc_id)
-    errors = []
+    warnings = []
 
-    # 1. 删除 MySQL 中的 Chunk 记录
+    # 1. 删除 Neo4j 知识图谱节点（非关键操作）
+    try:
+        graph_result = await graph_service.delete_by_document(doc_id)
+        if not graph_result.get("neo4j"):
+            warnings.append(f"图谱节点删除: {graph_result.get('error', '无数据')}")
+    except Exception as e:
+        warnings.append(f"图谱节点删除异常: {e}")
+
+    # 2. 删除 ChromaDB 向量数据（非关键操作）
+    try:
+        collection = get_or_create_collection()
+        await asyncio.to_thread(collection.delete, where={"document_id": doc_id})
+    except Exception as e:
+        warnings.append(f"向量数据删除: {e}")
+
+    # 3. 删除物理文件（非关键操作）
+    try:
+        if os.path.exists(doc.file_path):
+            os.remove(doc.file_path)
+    except Exception as e:
+        warnings.append(f"物理文件删除: {e}")
+
+    # 4. 删除 MySQL 中的 Chunk 和 Document 记录（关键操作）
     try:
         chunks_result = await db.execute(select(Chunk).where(Chunk.document_id == doc_id))
         chunks = chunks_result.scalars().all()
         for chunk in chunks:
             await db.delete(chunk)
-        await db.flush()
+        await db.delete(doc)
+        await db.commit()
     except Exception as e:
-        errors.append(f"删除Chunk失败: {e}")
+        await db.rollback()
+        return {"success": False, "message": f"数据库删除失败: {e}"}
 
-    # 2. 删除 Neo4j 中的知识图谱节点
-    graph_result = await graph_service.delete_by_document(doc_id)
-    if not graph_result.get("neo4j"):
-        errors.append(f"删除知识图谱节点失败: {graph_result.get('error', '未知错误')}")
-
-    # 3. 删除 ChromaDB 中的向量数据
-    collection = get_or_create_collection()
-    try:
-        await asyncio.to_thread(collection.delete, where={"document_id": doc_id})
-    except Exception as e:
-        errors.append(f"删除向量数据失败: {e}")
-
-    # 4. 删除物理文件
-    try:
-        if os.path.exists(doc.file_path):
-            os.remove(doc.file_path)
-    except Exception as e:
-        errors.append(f"删除物理文件失败: {e}")
-
-    # 5. 删除 Document 记录
-    await db.delete(doc)
-    await db.commit()
-
-    if errors:
-        return {"success": False, "message": "; ".join(errors)}
+    # MySQL 删除成功，返回成功（警告信息仅用于日志）
+    if warnings:
+        return {"success": True, "message": "文档已删除", "warnings": warnings}
     return {"success": True, "message": "文档及相关数据已删除"}
 
 
 async def get_chunks(db: AsyncSession, doc_id: int) -> list[Chunk]:
     result = await db.execute(select(Chunk).where(Chunk.document_id == doc_id).order_by(Chunk.chunk_index))
     return list(result.scalars().all())
+
+
+async def delete_all_documents(db: AsyncSession) -> dict:
+    """清空所有文档和相关数据"""
+    warnings = []
+
+    # 1. 获取所有文档
+    result = await db.execute(select(Document))
+    docs = result.scalars().all()
+
+    # 2. 逐个删除（确保每个文档的数据都被清理）
+    for doc in docs:
+        delete_result = await delete_document(db, doc.id)
+        if not delete_result.get("success"):
+            warnings.append(f"删除文档 {doc.name}: {delete_result.get('message')}")
+
+    # 3. 清空 Neo4j 所有剩余节点（非关键操作）
+    try:
+        await graph_service.delete_all_entities()
+    except Exception as e:
+        warnings.append(f"清空Neo4j: {e}")
+
+    return {"success": True, "message": f"已清空 {len(docs)} 个文档及相关数据", "warnings": warnings}
+
+
+async def delete_user_documents(db: AsyncSession, user_id: int) -> dict:
+    """删除用户的所有文档及相关数据"""
+    result = await db.execute(select(Document).where(Document.uploaded_by == user_id))
+    docs = result.scalars().all()
+    warnings = []
+
+    for doc in docs:
+        delete_result = await delete_document(db, doc.id)
+        if not delete_result.get("success"):
+            warnings.append(f"删除文档 {doc.name}: {delete_result.get('message')}")
+
+    return {"success": True, "message": f"已清空 {len(docs)} 个旧文档", "warnings": warnings}
