@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 from sqlalchemy import select, func
@@ -8,6 +9,7 @@ from app.models.chunk import Chunk
 from app.exceptions import NotFoundError
 from app.parsers.pipeline import process_document
 from app.core.graph_build_service import extract_and_build
+from app.services import graph_service
 from app.db.chroma import get_or_create_collection
 from app.db.mysql import async_session
 from app.utils.pagination import PageParams, PageResult
@@ -120,17 +122,44 @@ async def get_document_stats(db: AsyncSession) -> dict:
 
 async def delete_document(db: AsyncSession, doc_id: int):
     doc = await get_document(db, doc_id)
-    # Clean up ChromaDB vectors
+    errors = []
+
+    # 1. 删除 MySQL 中的 Chunk 记录
+    try:
+        chunks_result = await db.execute(select(Chunk).where(Chunk.document_id == doc_id))
+        chunks = chunks_result.scalars().all()
+        for chunk in chunks:
+            await db.delete(chunk)
+        await db.flush()
+    except Exception as e:
+        errors.append(f"删除Chunk失败: {e}")
+
+    # 2. 删除 Neo4j 中的知识图谱节点
+    graph_result = await graph_service.delete_by_document(doc_id)
+    if not graph_result.get("neo4j"):
+        errors.append(f"删除知识图谱节点失败: {graph_result.get('error', '未知错误')}")
+
+    # 3. 删除 ChromaDB 中的向量数据
     collection = get_or_create_collection()
     try:
-        collection.delete(where={"document_id": doc_id})
-    except Exception:
-        pass
-    # Delete file
-    if os.path.exists(doc.file_path):
-        os.remove(doc.file_path)
+        await asyncio.to_thread(collection.delete, where={"document_id": doc_id})
+    except Exception as e:
+        errors.append(f"删除向量数据失败: {e}")
+
+    # 4. 删除物理文件
+    try:
+        if os.path.exists(doc.file_path):
+            os.remove(doc.file_path)
+    except Exception as e:
+        errors.append(f"删除物理文件失败: {e}")
+
+    # 5. 删除 Document 记录
     await db.delete(doc)
     await db.commit()
+
+    if errors:
+        return {"success": False, "message": "; ".join(errors)}
+    return {"success": True, "message": "文档及相关数据已删除"}
 
 
 async def get_chunks(db: AsyncSession, doc_id: int) -> list[Chunk]:

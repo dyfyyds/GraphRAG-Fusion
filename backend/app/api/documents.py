@@ -53,8 +53,8 @@ async def upload_document(
 
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
-    await document_service.delete_document(db, doc_id)
-    return {"message": "文档已删除"}
+    result = await document_service.delete_document(db, doc_id)
+    return result
 
 
 @router.post("/{doc_id}/reparse", response_model=DocumentOut)

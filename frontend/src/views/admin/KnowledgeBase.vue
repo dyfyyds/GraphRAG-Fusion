@@ -437,8 +437,12 @@ async function reparseDoc(row) {
 async function deleteDoc(row) {
   await ElMessageBox.confirm('确定删除此文档？', '确认')
   try {
-    await request.delete(`/documents/${row.id}`)
-    ElMessage.success('已删除')
+    const res = await request.delete(`/documents/${row.id}`)
+    if (res.data?.success) {
+      ElMessage.success('已删除')
+    } else {
+      ElMessage.warning(res.data?.message || '部分数据删除失败')
+    }
     await loadDocuments()
   } catch {}
 }
