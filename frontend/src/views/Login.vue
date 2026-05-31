@@ -9,32 +9,55 @@
         <p class="login-subtitle">基于检索增强生成的企业知识库问答平台</p>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin">
-        <div class="form-group">
+      <div class="auth-tabs">
+        <button type="button" :class="{ active: mode === 'login' }" @click="switchMode('login')">登录</button>
+        <button type="button" :class="{ active: mode === 'register' }" @click="switchMode('register')">注册</button>
+      </div>
+
+      <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleSubmit">
+        <el-form-item prop="username" class="form-group">
           <label class="form-label">用户名</label>
           <el-input v-model="form.username" placeholder="请输入用户名" size="large">
             <template #prefix>
               <el-icon><User /></el-icon>
             </template>
           </el-input>
-        </div>
+        </el-form-item>
 
-        <div class="form-group">
+        <el-form-item v-if="mode === 'register'" prop="email" class="form-group">
+          <label class="form-label">邮箱</label>
+          <el-input v-model="form.email" placeholder="请输入邮箱（选填）" size="large">
+            <template #prefix>
+              <el-icon><Message /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+
+        <el-form-item prop="password" class="form-group">
           <label class="form-label">密码</label>
-          <el-input v-model="form.password" placeholder="请输入密码" type="password" show-password size="large" @keyup.enter="handleLogin">
+          <el-input v-model="form.password" placeholder="请输入密码" type="password" show-password size="large" @keyup.enter="handleSubmit">
             <template #prefix>
               <el-icon><Lock /></el-icon>
             </template>
           </el-input>
-        </div>
+        </el-form-item>
 
-        <div class="login-options">
+        <el-form-item v-if="mode === 'register'" prop="confirmPassword" class="form-group">
+          <label class="form-label">确认密码</label>
+          <el-input v-model="form.confirmPassword" placeholder="请再次输入密码" type="password" show-password size="large" @keyup.enter="handleSubmit">
+            <template #prefix>
+              <el-icon><Lock /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+
+        <div v-if="mode === 'login'" class="login-options">
           <el-checkbox v-model="rememberMe">记住我</el-checkbox>
           <a href="#" class="forgot-link">忘记密码？</a>
         </div>
 
-        <el-button type="primary" size="large" :loading="loading" class="login-btn" @click="handleLogin">
-          登 录
+        <el-button type="primary" size="large" :loading="loading" class="login-btn" @click="handleSubmit">
+          {{ mode === 'login' ? '登 录' : '注 册' }}
         </el-button>
       </el-form>
     </div>
@@ -46,7 +69,7 @@ import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, Message } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -54,19 +77,59 @@ const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
 const rememberMe = ref(true)
+const mode = ref('login')
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: '', password: '', email: '', confirmPassword: '' })
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (mode.value === 'register' && value && value.length < 6) {
+          callback(new Error('密码至少 6 位'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+  email: [{ type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }],
+  confirmPassword: [
+    {
+      validator: (_rule, value, callback) => {
+        if (mode.value === 'register' && !value) {
+          callback(new Error('请确认密码'))
+        } else if (mode.value === 'register' && value !== form.password) {
+          callback(new Error('两次输入的密码不一致'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
 }
 
-async function handleLogin() {
+function switchMode(nextMode) {
+  mode.value = nextMode
+  form.password = ''
+  form.confirmPassword = ''
+  formRef.value?.clearValidate()
+}
+
+async function handleSubmit() {
   await formRef.value.validate()
   loading.value = true
   try {
-    await userStore.login(form.username, form.password)
-    ElMessage.success('登录成功')
+    if (mode.value === 'register') {
+      await userStore.register(form.username, form.password, form.email)
+      ElMessage.success('注册成功')
+    } else {
+      await userStore.login(form.username, form.password)
+      ElMessage.success('登录成功')
+    }
     const redirect = route.query.redirect
     if (redirect) {
       router.push(redirect)
@@ -76,10 +139,19 @@ async function handleLogin() {
       router.push('/')
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '登录失败')
+    ElMessage.error(getErrorMessage(err))
   } finally {
     loading.value = false
   }
+}
+
+function getErrorMessage(err) {
+  const data = err.response?.data
+  const detail = data?.detail?.[0]
+  if (detail?.loc?.includes('password') && detail?.type === 'string_too_short') return '密码至少 6 位'
+  if (detail?.loc?.includes('username')) return '请输入 1-50 位用户名'
+  if (detail?.loc?.includes('email')) return '请输入正确的邮箱地址'
+  return data?.message || (mode.value === 'register' ? '注册失败' : '登录失败')
 }
 </script>
 
@@ -103,7 +175,7 @@ async function handleLogin() {
 
 .login-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .logo {
@@ -138,6 +210,37 @@ async function handleLogin() {
 
 .form-group {
   margin-bottom: 20px;
+}
+
+.login-card :deep(.el-form-item__content) {
+  display: block;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 22px;
+  background: #f4f6fb;
+  border-radius: 8px;
+}
+
+.auth-tabs button {
+  height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #606266;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  background: #fff;
+  color: #667eea;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.16);
 }
 
 .form-label {

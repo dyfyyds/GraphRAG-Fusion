@@ -1,5 +1,9 @@
 <template>
   <div class="graph-toolbar">
+    <div class="toolbar-title">
+      <div class="title">知识图谱</div>
+      <div class="subtitle">实体、关系与语义网络</div>
+    </div>
     <div class="left">
       <div class="search-box">
         <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
@@ -9,6 +13,9 @@
           placeholder="搜索实体名称..."
           @keyup.enter="$emit('search', query)"
         >
+        <button class="search-action" title="搜索" @click="$emit('search', query)">
+          <svg viewBox="0 0 24 24"><path d="M9.5 3a6.5 6.5 0 015.2 10.4l4.45 4.45-1.41 1.41-4.45-4.45A6.5 6.5 0 119.5 3zm0 2a4.5 4.5 0 100 9 4.5 4.5 0 000-9z"/></svg>
+        </button>
       </div>
       <select
         class="filter-select"
@@ -51,18 +58,38 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 <style scoped>
 .graph-toolbar {
   background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  padding: 16px 20px;
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
+  padding: 14px 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+}
+
+.toolbar-title {
+  min-width: 160px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 650;
+  color: #1f2937;
+  line-height: 1.2;
+}
+
+.subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #7a8494;
 }
 
 .left {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex: 1;
 }
 
 .right {
@@ -73,17 +100,19 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid #dcdfe6;
+  border: 1px solid #d8dee8;
   border-radius: 6px;
-  padding: 0 12px;
-  height: 36px;
-  background: #fff;
-  width: 280px;
-  transition: border-color 0.2s;
+  padding: 0 4px 0 12px;
+  height: 38px;
+  background: #f8fafc;
+  width: min(360px, 100%);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 
 .search-box:focus-within {
-  border-color: #667eea;
+  border-color: #2563eb;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .search-box svg {
@@ -99,21 +128,47 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
   outline: none;
   flex: 1;
   font-size: 13px;
-  color: #303133;
+  color: #1f2937;
   background: transparent;
+  min-width: 0;
 }
 
 .search-box input::placeholder {
   color: #c0c4cc;
 }
 
+.search-action {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.search-action:hover {
+  background: #eaf1ff;
+  color: #2563eb;
+}
+
+.search-action svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  margin: 0;
+}
+
 .filter-select {
-  height: 36px;
-  border: 1px solid #dcdfe6;
+  height: 38px;
+  border: 1px solid #d8dee8;
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: #606266;
+  color: #475569;
   background: #fff;
   cursor: pointer;
   outline: none;
@@ -121,11 +176,12 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 }
 
 .filter-select:focus {
-  border-color: #667eea;
+  border-color: #2563eb;
 }
 
 .btn {
-  padding: 8px 16px;
+  height: 38px;
+  padding: 0 14px;
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
@@ -144,22 +200,37 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 }
 
 .btn-primary {
-  background: #667eea;
+  background: #2563eb;
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: #5a6fd6;
+  background: #1d4ed8;
 }
 
 .btn-default {
   background: #fff;
-  color: #606266;
-  border-color: #dcdfe6;
+  color: #475569;
+  border-color: #d8dee8;
 }
 
 .btn-default:hover {
-  border-color: #667eea;
-  color: #667eea;
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+@media (max-width: 1100px) {
+  .graph-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-title {
+    width: 100%;
+  }
+
+  .right {
+    margin-left: auto;
+  }
 }
 </style>

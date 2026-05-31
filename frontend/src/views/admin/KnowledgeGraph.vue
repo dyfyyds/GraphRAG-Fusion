@@ -29,6 +29,11 @@
 
         <!-- D3 graph container -->
         <div ref="graphRef" class="graph-svg-container"></div>
+        <div v-if="loading" class="graph-loading">加载图谱中...</div>
+        <div v-else-if="!entities.length" class="graph-empty">
+          <div class="empty-title">暂无实体</div>
+          <div class="empty-desc">添加实体或导入文档后，图谱会显示在这里</div>
+        </div>
 
         <!-- Color-coded legend (dynamic) -->
         <div class="graph-legend">
@@ -55,7 +60,18 @@
       </div>
 
       <!-- Right panel -->
-      <div class="right-panel">
+      <button
+        class="panel-toggle"
+        :class="{ collapsed: rightPanelCollapsed }"
+        :title="rightPanelCollapsed ? '展开侧栏' : '收起侧栏'"
+        @click="toggleRightPanel"
+      >
+        <svg viewBox="0 0 24 24">
+          <path :d="rightPanelCollapsed ? 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z' : 'M14 6l1.41 1.41L10.83 12l4.58 4.59L14 18l-6-6z'"/>
+        </svg>
+      </button>
+
+      <div class="right-panel" :class="{ collapsed: rightPanelCollapsed }">
         <!-- Entity list card -->
         <div class="panel-card">
           <div class="panel-header">
@@ -210,6 +226,7 @@ const relations = ref([])
 const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
+const rightPanelCollapsed = ref(false)
 
 let simulation = null
 let svg = null
@@ -334,8 +351,8 @@ function renderGraph() {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', c)
-      .attr('opacity', 0.6)
+      .attr('fill', '#64748b')
+      .attr('opacity', 0.65)
   }
 
   defs.append('marker')
@@ -346,8 +363,8 @@ function renderGraph() {
     .attr('orient', 'auto')
     .append('path')
     .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', '#909399')
-    .attr('opacity', 0.5)
+    .attr('fill', '#64748b')
+    .attr('opacity', 0.55)
 
   const g = svg.append('g')
 
@@ -391,8 +408,8 @@ function renderGraph() {
       const tgtNode = nodes.find(n => n.name === d.target)
       return TYPE_COLORS[tgtNode?.type] || '#909399'
     })
-    .attr('stroke-width', 1.5)
-    .attr('stroke-opacity', 0.35)
+    .attr('stroke-width', 1.4)
+    .attr('stroke-opacity', 0.42)
     .attr('marker-end', d => {
       const tgtNode = nodes.find(n => n.name === d.target)
       return `url(#arrow-${tgtNode?.type || 'default'})`
@@ -403,11 +420,11 @@ function renderGraph() {
   const linkLabels = linkLabelGroup.selectAll('text').data(links).join('text')
     .text(d => d.type)
     .attr('font-size', 10)
-    .attr('fill', '#909399')
+    .attr('fill', '#64748b')
     .attr('text-anchor', 'middle')
     .attr('dy', -4)
     .style('pointer-events', 'none')
-    .style('opacity', 0.7)
+    .style('opacity', 0.72)
 
   // ---- nodes ----
   const nodeGroup = g.append('g').attr('class', 'nodes')
@@ -422,7 +439,7 @@ function renderGraph() {
       highlightNode(d)
     })
     .on('mouseenter', function(event, d) {
-      d3.select(this).select('circle').transition().duration(200).attr('filter', 'url(#shadow)')
+      d3.select(this).select('.node-core').transition().duration(180).attr('filter', 'url(#shadow)')
       tooltip.style('opacity', 1).html(`<b>${d.name}</b><br><span style="opacity:.7">${getTypeName(d.type)} · ${d.connections} 个关系</span>`)
     })
     .on('mousemove', function(event) {
@@ -430,24 +447,47 @@ function renderGraph() {
       tooltip.style('left', mx + 'px').style('top', (my - 10) + 'px')
     })
     .on('mouseleave', function() {
-      d3.select(this).select('circle').transition().duration(200).attr('filter', null)
+      d3.select(this).select('.node-core').transition().duration(180).attr('filter', null)
       tooltip.style('opacity', 0)
     })
 
   nodeG.append('circle')
+    .attr('class', 'node-halo')
+    .attr('r', d => d.radius + 8)
+    .attr('fill', d => (TYPE_COLORS[d.type] || '#64748b') + '14')
+    .attr('stroke', d => (TYPE_COLORS[d.type] || '#64748b') + '22')
+    .attr('stroke-width', 1)
+    .attr('pointer-events', 'none')
+
+  nodeG.append('circle')
+    .attr('class', 'node-core')
     .attr('r', d => d.radius)
-    .attr('fill', d => (TYPE_COLORS[d.type] || '#909399') + '22')
-    .attr('stroke', d => TYPE_COLORS[d.type] || '#909399')
-    .attr('stroke-width', 2.5)
+    .attr('fill', '#ffffff')
+    .attr('stroke', d => TYPE_COLORS[d.type] || '#64748b')
+    .attr('stroke-width', 2.2)
     .style('transition', 'all 0.3s ease')
 
   nodeG.append('text')
+    .text(d => getTypeLabel(d.type))
+    .attr('text-anchor', 'middle')
+    .attr('dy', 5)
+    .attr('font-size', d => Math.max(11, Math.min(16, d.radius - 4)))
+    .attr('font-weight', 700)
+    .attr('fill', d => TYPE_COLORS[d.type] || '#64748b')
+    .attr('pointer-events', 'none')
+
+  nodeG.append('text')
+    .attr('class', 'node-name')
     .text(d => d.name.length > 8 ? d.name.slice(0, 8) + '..' : d.name)
     .attr('text-anchor', 'middle')
     .attr('dy', d => d.radius + 14)
     .attr('font-size', 11)
-    .attr('font-weight', 500)
-    .attr('fill', d => TYPE_COLORS[d.type] || '#606266')
+    .attr('font-weight', 600)
+    .attr('fill', '#334155')
+    .attr('paint-order', 'stroke')
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 4)
+    .attr('stroke-linejoin', 'round')
     .attr('pointer-events', 'none')
 
   // ---- tooltip ----
@@ -458,10 +498,10 @@ function renderGraph() {
   // ---- force simulation ----
   const nodeCount = nodes.length
   // Dynamic spacing: more nodes → longer links, stronger repulsion
-  const linkDist = Math.max(120, Math.min(280, 600 / Math.sqrt(nodeCount || 1)))
+  const linkDist = Math.max(120, Math.min(260, 580 / Math.sqrt(nodeCount || 1)))
   simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.name).distance(linkDist).strength(0.25))
-    .force('charge', d3.forceManyBody().strength(d => -400 - d.radius * 12))
+    .force('link', d3.forceLink(links).id(d => d.name).distance(linkDist).strength(0.22))
+    .force('charge', d3.forceManyBody().strength(d => -460 - d.radius * 12))
     .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
     .force('x', d3.forceX(width / 2).strength(0.015))
     .force('y', d3.forceY(height / 2).strength(0.015))
@@ -500,10 +540,13 @@ function highlightNode(d) {
   const linkSel = d3.select('g.links').selectAll('line')
   const labelSel = d3.select('g.link-labels').selectAll('text')
 
-  nodeSel.select('circle')
+  nodeSel.select('.node-core')
     .transition().duration(400)
     .attr('stroke-opacity', n => connectedNames.has(n.name) ? 1 : 0.1)
     .attr('opacity', n => connectedNames.has(n.name) ? 1 : 0.2)
+  nodeSel.select('.node-halo')
+    .transition().duration(400)
+    .attr('opacity', n => connectedNames.has(n.name) ? 1 : 0.12)
 
   nodeSel.select('text')
     .transition().duration(400)
@@ -532,9 +575,12 @@ function resetHighlight() {
   highlightedNode = null
   selectedEntity.value = null
 
-  d3.select('g.nodes').selectAll('g').select('circle')
+  d3.select('g.nodes').selectAll('g').select('.node-core')
     .transition().duration(400)
     .attr('stroke-opacity', 1).attr('opacity', 1)
+  d3.select('g.nodes').selectAll('g').select('.node-halo')
+    .transition().duration(400)
+    .attr('opacity', 1)
   d3.select('g.nodes').selectAll('g').select('text')
     .transition().duration(400)
     .attr('opacity', 1)
@@ -562,6 +608,11 @@ function dragEnded(event) {
 }
 
 function handleSearch(q) { loadGraph(q) }
+
+function toggleRightPanel() {
+  rightPanelCollapsed.value = !rightPanelCollapsed.value
+  setTimeout(() => renderGraph(), 260)
+}
 
 async function deleteEntity(entity) {
   if (!confirm(`确定删除实体「${entity.name}」？该实体的所有关系也将被删除。`)) return
@@ -638,30 +689,44 @@ onMounted(() => loadGraph())
 .knowledge-graph-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   height: 100%;
+  min-height: 0;
+  background: #f6f8fb;
 }
 
 .graph-layout {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
+  position: relative;
 }
 
 /* Graph canvas */
 .graph-canvas {
   flex: 1;
   background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
   position: relative;
   overflow: hidden;
+  min-width: 0;
 }
 
 .graph-svg-container {
   width: 100%;
   height: 100%;
+  min-height: 560px;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 28% 22%, rgba(37, 99, 235, 0.08), transparent 32%),
+    radial-gradient(circle at 76% 72%, rgba(20, 184, 166, 0.08), transparent 30%),
+    #fbfdff;
+  background-size: 28px 28px, 28px 28px, 100% 100%, 100% 100%, auto;
 }
 
 .kg-svg {
@@ -674,17 +739,45 @@ onMounted(() => loadGraph())
 
 .graph-tooltip {
   position: absolute;
-  padding: 8px 14px;
-  background: rgba(30, 30, 30, 0.92);
+  padding: 9px 12px;
+  background: rgba(15, 23, 42, 0.92);
   color: #fff;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 12px;
   line-height: 1.6;
   pointer-events: none;
   z-index: 100;
   transform: translate(-50%, -130%);
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.2);
+}
+
+.graph-loading,
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.graph-empty {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.empty-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: #334155;
+}
+
+.empty-desc {
+  color: #7a8494;
 }
 
 /* Stats overlay */
@@ -693,26 +786,37 @@ onMounted(() => loadGraph())
   top: 16px;
   left: 16px;
   display: flex;
-  gap: 12px;
+  gap: 0;
   z-index: 10;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
 }
 
 .graph-stat {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
   padding: 10px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 82px;
+  border-right: 1px solid #eef2f7;
+}
+
+.graph-stat:last-child {
+  border-right: 0;
 }
 
 .graph-stat .num {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
-  color: #667eea;
+  color: #1f2937;
+  line-height: 1.1;
 }
 
 .graph-stat .label {
+  margin-top: 4px;
   font-size: 11px;
-  color: #909399;
+  color: #7a8494;
 }
 
 /* Legend */
@@ -720,24 +824,29 @@ onMounted(() => loadGraph())
   position: absolute;
   bottom: 16px;
   left: 16px;
-  background: rgba(255, 255, 255, 0.95);
+  max-width: min(520px, calc(100% - 32px));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 8px;
-  padding: 12px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
   z-index: 10;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 6px;
   font-size: 12px;
-  color: #606266;
-}
-
-.legend-item:last-child {
-  margin-bottom: 0;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #edf2f7;
+  border-radius: 999px;
+  padding: 4px 8px;
 }
 
 .legend-dot {
@@ -753,51 +862,103 @@ onMounted(() => loadGraph())
   right: 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   z-index: 10;
 }
 
 .graph-control {
-  width: 36px;
-  height: 36px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: background 0.2s;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  transition: background 0.2s, color 0.2s, transform 0.2s;
 }
 
 .graph-control:hover {
-  background: #ecf5ff;
+  background: #eff6ff;
+  transform: translateY(-1px);
 }
 
 .graph-control svg {
   width: 18px;
   height: 18px;
-  fill: #606266;
+  fill: #475569;
 }
 
 /* Right panel */
 .right-panel {
-  width: 340px;
+  width: 360px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   flex-shrink: 0;
+  min-height: 0;
+  transition: width 0.24s ease, opacity 0.18s ease, transform 0.24s ease;
+}
+
+.right-panel.collapsed {
+  width: 0;
+  opacity: 0;
+  transform: translateX(24px);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.panel-toggle {
+  position: absolute;
+  top: 50%;
+  right: 368px;
+  z-index: 20;
+  width: 28px;
+  height: 56px;
+  border: 1px solid #d8dee8;
+  border-right-color: #e7eaf0;
+  border-radius: 8px 0 0 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #64748b;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: right 0.24s ease, background 0.2s, color 0.2s;
+}
+
+.panel-toggle:hover {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.panel-toggle.collapsed {
+  right: 0;
+  border-radius: 8px 0 0 8px;
+}
+
+.panel-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .panel-card {
   background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e7eaf0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #ebeef5;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef2f7;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -805,19 +966,19 @@ onMounted(() => loadGraph())
 
 .panel-header h3 {
   font-size: 15px;
-  font-weight: 600;
-  color: #303133;
+  font-weight: 650;
+  color: #1f2937;
   margin: 0;
 }
 
 .panel-count {
   font-size: 12px;
-  color: #909399;
+  color: #7a8494;
 }
 
 .panel-body {
-  padding: 16px 20px;
-  max-height: 300px;
+  padding: 8px;
+  max-height: 310px;
   overflow-y: auto;
 }
 
@@ -832,22 +993,21 @@ onMounted(() => loadGraph())
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .entity-item:hover {
-  background: #f5f7fa;
-  margin: 0 -20px;
-  padding: 10px 20px;
+  background: #f8fafc;
+  border-color: #edf2f7;
 }
 
 .entity-item.active {
-  background: #ecf5ff;
-  margin: 0 -20px;
-  padding: 10px 20px;
+  background: #eff6ff;
+  border-color: #bfdbfe;
 }
 
 .entity-item:last-child {
@@ -857,7 +1017,7 @@ onMounted(() => loadGraph())
 .entity-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -873,18 +1033,23 @@ onMounted(() => loadGraph())
 
 .entity-info .name {
   font-size: 13px;
-  font-weight: 500;
-  color: #303133;
+  font-weight: 650;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entity-info .type {
+  margin-top: 2px;
   font-size: 11px;
-  color: #909399;
+  color: #7a8494;
 }
 
 .entity-info .relations {
+  margin-top: 2px;
   font-size: 11px;
-  color: #667eea;
+  color: #2563eb;
 }
 
 .type-c0  { background: #ecf5ff; color: #409eff; }
@@ -914,10 +1079,18 @@ onMounted(() => loadGraph())
 .relation-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  border-bottom: 1px solid #f0f0f0;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   font-size: 13px;
+  color: #475569;
+  flex-wrap: wrap;
+}
+
+.relation-item:hover {
+  background: #f8fafc;
+  border-color: #edf2f7;
 }
 
 .relation-item:last-child {
@@ -925,26 +1098,31 @@ onMounted(() => loadGraph())
 }
 
 .rel-name {
-  font-weight: 500;
-  color: #303133;
+  font-weight: 650;
+  color: #1f2937;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .relation-arrow {
-  color: #667eea;
+  color: #94a3b8;
   font-weight: 600;
 }
 
 .relation-label {
-  color: #909399;
+  color: #2563eb;
   font-size: 11px;
-  background: #f5f7fa;
-  padding: 2px 6px;
-  border-radius: 3px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 2px 7px;
+  border-radius: 999px;
 }
 
 .relation-empty {
   text-align: center;
-  color: #909399;
+  color: #7a8494;
   font-size: 13px;
   padding: 20px 0;
 }
@@ -956,7 +1134,7 @@ onMounted(() => loadGraph())
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -965,14 +1143,15 @@ onMounted(() => loadGraph())
 
 .modal {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 8px;
   width: 480px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e7eaf0;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
 }
 
 .modal-header {
-  padding: 20px 24px;
-  border-bottom: 1px solid #ebeef5;
+  padding: 18px 20px;
+  border-bottom: 1px solid #eef2f7;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -980,8 +1159,8 @@ onMounted(() => loadGraph())
 
 .modal-header h3 {
   font-size: 16px;
-  font-weight: 600;
-  color: #303133;
+  font-weight: 650;
+  color: #1f2937;
   margin: 0;
 }
 
@@ -989,16 +1168,16 @@ onMounted(() => loadGraph())
   width: 24px;
   height: 24px;
   cursor: pointer;
-  fill: #909399;
+  fill: #94a3b8;
   transition: fill 0.2s;
 }
 
 .modal-close:hover {
-  fill: #606266;
+  fill: #475569;
 }
 
 .modal-body {
-  padding: 24px;
+  padding: 20px;
 }
 
 .form-group {
@@ -1012,7 +1191,7 @@ onMounted(() => loadGraph())
 .form-group label {
   display: block;
   font-size: 13px;
-  color: #606266;
+  color: #475569;
   margin-bottom: 6px;
   font-weight: 500;
 }
@@ -1024,7 +1203,7 @@ onMounted(() => loadGraph())
 .form-input {
   width: 100%;
   height: 36px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid #d8dee8;
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
@@ -1034,17 +1213,18 @@ onMounted(() => loadGraph())
 }
 
 .form-input:focus {
-  border-color: #667eea;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .form-select {
   width: 100%;
   height: 36px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid #d8dee8;
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: #606266;
+  color: #475569;
   background: #fff;
   outline: none;
   box-sizing: border-box;
@@ -1052,7 +1232,7 @@ onMounted(() => loadGraph())
 
 .form-textarea {
   width: 100%;
-  border: 1px solid #dcdfe6;
+  border: 1px solid #d8dee8;
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1065,12 +1245,13 @@ onMounted(() => loadGraph())
 }
 
 .form-textarea:focus {
-  border-color: #667eea;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .modal-footer {
-  padding: 16px 24px;
-  border-top: 1px solid #ebeef5;
+  padding: 14px 20px;
+  border-top: 1px solid #eef2f7;
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -1089,23 +1270,23 @@ onMounted(() => loadGraph())
 }
 
 .btn-primary {
-  background: #667eea;
+  background: #2563eb;
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: #5a6fd6;
+  background: #1d4ed8;
 }
 
 .btn-default {
   background: #fff;
-  color: #606266;
-  border-color: #dcdfe6;
+  color: #475569;
+  border-color: #d8dee8;
 }
 
 .btn-default:hover {
-  border-color: #667eea;
-  color: #667eea;
+  border-color: #2563eb;
+  color: #2563eb;
 }
 
 .btn-icon {
