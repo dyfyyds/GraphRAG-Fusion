@@ -127,12 +127,12 @@ const editingUser = ref(null)
 const form = reactive({ username: '', password: '', email: '', role: 'user' })
 
 const avatarColors = [
-  'linear-gradient(135deg, #f56c6c, #e74c3c)',
-  'linear-gradient(135deg, #409eff, #337ecc)',
-  'linear-gradient(135deg, #67c23a, #4caf50)',
-  'linear-gradient(135deg, #e6a23c, #f39c12)',
-  'linear-gradient(135deg, #909399, #606266)',
-  'linear-gradient(135deg, #667eea, #764ba2)',
+  '#dc2626',
+  '#2563eb',
+  '#16a34a',
+  '#d97706',
+  '#64748b',
+  '#0f766e',
 ]
 
 function avatarLetter(name) {
@@ -238,6 +238,8 @@ onMounted(loadUsers)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .toolbar-left {
@@ -249,16 +251,17 @@ onMounted(loadUsers)
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
   padding: 0 12px;
   height: 36px;
-  background: #fff;
+  background: var(--color-surface);
   width: 260px;
+  backdrop-filter: blur(8px);
 }
 
 .search-box .el-icon {
-  color: #c0c4cc;
+  color: var(--color-text-subtle);
   margin-right: 8px;
   font-size: 16px;
 }
@@ -266,17 +269,21 @@ onMounted(loadUsers)
 .search-box :deep(.el-input__wrapper) {
   box-shadow: none !important;
   padding: 0;
+  background: transparent !important;
 }
 
 .search-box :deep(.el-input__inner) {
   font-size: 13px;
+  color: var(--color-text) !important;
 }
 
 .table-card {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
   overflow: hidden;
+  backdrop-filter: blur(8px);
 }
 
 .user-cell {
@@ -288,7 +295,7 @@ onMounted(loadUsers)
 .user-cell .avatar {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -299,32 +306,32 @@ onMounted(loadUsers)
 }
 
 .user-cell .user-name {
-  font-weight: 500;
+  font-weight: 650;
   font-size: 14px;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .user-cell .user-id {
   font-size: 11px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-top: 2px;
 }
 
 .role-tag {
   display: inline-block;
   padding: 3px 10px;
-  border-radius: 10px;
+  border-radius: 999px;
   font-size: 12px;
 }
 
 .role-admin {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .role-user {
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .status-switch {
@@ -333,15 +340,16 @@ onMounted(loadUsers)
   border-radius: 10px;
   position: relative;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: all 0.3s;
 }
 
 .status-switch.on {
-  background: #67c23a;
+  background: var(--color-success);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.3);
 }
 
 .status-switch.off {
-  background: #dcdfe6;
+  background: rgba(90, 106, 130, 0.4);
 }
 
 .status-switch::after {
@@ -353,7 +361,7 @@ onMounted(loadUsers)
   background: #fff;
   border-radius: 50%;
   transition: left 0.3s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .status-switch.on::after {
@@ -371,35 +379,36 @@ onMounted(loadUsers)
 
 .action-btn {
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
   border: none;
   background: transparent;
+  transition: all 0.2s;
 }
 
 .action-btn.edit {
-  color: #409eff;
+  color: var(--color-primary);
 }
 
 .action-btn.edit:hover {
-  background: #ecf5ff;
+  background: var(--color-primary-soft);
 }
 
 .action-btn.reset {
-  color: #e6a23c;
+  color: var(--color-warning);
 }
 
 .action-btn.reset:hover {
-  background: #fdf6ec;
+  background: var(--color-warning-soft);
 }
 
 .action-btn.delete {
-  color: #f56c6c;
+  color: var(--color-danger);
 }
 
 .action-btn.delete:hover {
-  background: #fef0f0;
+  background: var(--color-danger-soft);
 }
 
 .pagination {
@@ -411,6 +420,18 @@ onMounted(loadUsers)
 
 .pagination .info {
   font-size: 13px;
-  color: #909399;
+  color: var(--color-text-subtle);
+}
+
+@media (max-width: 900px) {
+  .toolbar,
+  .toolbar-left {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-box {
+    width: 100%;
+  }
 }
 </style>

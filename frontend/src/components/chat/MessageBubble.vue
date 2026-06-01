@@ -67,8 +67,8 @@ function setFeedback(val) {
 .message {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
-  max-width: 800px;
+  margin-bottom: 22px;
+  max-width: min(860px, 100%);
 }
 .message.user {
   flex-direction: row-reverse;
@@ -86,31 +86,38 @@ function setFeedback(val) {
   font-weight: 600;
 }
 .message.user .avatar {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   color: #fff;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.3);
 }
 .message.assistant .avatar {
-  background: linear-gradient(135deg, #67c23a, #4caf50);
+  background: linear-gradient(135deg, var(--color-success), var(--color-teal));
   color: #fff;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
 }
 .bubble-wrapper {
-  max-width: 640px;
+  max-width: min(680px, calc(100vw - 420px));
+  min-width: 0;
 }
 .message .bubble {
   padding: 14px 18px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: 14px;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 .message.user .bubble {
-  background: #667eea;
+  background: linear-gradient(135deg, var(--color-primary), #0369a1);
   color: #fff;
   border-top-right-radius: 4px;
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.2);
 }
 .message.assistant .bubble {
-  background: #f5f7fa;
-  color: #303133;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
+  backdrop-filter: blur(8px);
 }
 .message .bubble :deep(p) {
   margin-bottom: 8px;
@@ -119,7 +126,7 @@ function setFeedback(val) {
   margin-bottom: 0;
 }
 .message .bubble :deep(strong) {
-  color: #667eea;
+  color: var(--color-primary);
 }
 .message.user .bubble :deep(strong) {
   color: #fff;
@@ -132,19 +139,43 @@ function setFeedback(val) {
   margin-bottom: 4px;
 }
 .message .bubble :deep(code) {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(14, 165, 233, 0.1);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Consolas', monospace;
   font-size: 13px;
+  color: var(--color-cyan);
+  border: 1px solid rgba(14, 165, 233, 0.15);
 }
 .message.user .bubble :deep(code) {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.message .bubble :deep(pre) {
+  background: var(--color-surface-solid) !important;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.message .bubble :deep(a) {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.message .bubble :deep(a:hover) {
+  text-decoration: underline;
+}
+.message .bubble :deep(blockquote) {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--color-text-muted);
 }
 .sources {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e8e8e8;
+  border-top: 1px solid var(--color-border);
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -152,7 +183,7 @@ function setFeedback(val) {
 .sources .title {
   width: 100%;
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-bottom: 4px;
 }
 .feedback-row {
@@ -163,23 +194,31 @@ function setFeedback(val) {
 .feedback-btn {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  border: 1px solid #ebeef5;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-surface);
   font-size: 14px;
   transition: all 0.2s;
   user-select: none;
 }
 .feedback-btn:hover {
-  border-color: #667eea;
-  background: #ecf5ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
 }
 .feedback-btn.active {
-  border-color: #667eea;
-  background: #ecf5ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
+}
+
+@media (max-width: 900px) {
+  .bubble-wrapper {
+    max-width: calc(100vw - 128px);
+  }
 }
 </style>

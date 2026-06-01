@@ -191,8 +191,8 @@ onMounted(loadMessages)
 
 <style scoped>
 .user-history-page {
-  padding: 0;
-  max-width: 860px;
+  padding: 24px;
+  max-width: 980px;
 }
 
 .toolbar {
@@ -200,6 +200,8 @@ onMounted(loadMessages)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .toolbar-left {
@@ -211,16 +213,17 @@ onMounted(loadMessages)
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
   padding: 0 12px;
   height: 36px;
-  background: #fff;
+  background: var(--color-surface);
   width: 300px;
+  backdrop-filter: blur(8px);
 }
 
 .search-box .el-icon {
-  color: #c0c4cc;
+  color: var(--color-text-subtle);
   margin-right: 8px;
   font-size: 16px;
 }
@@ -228,42 +231,49 @@ onMounted(loadMessages)
 .search-box :deep(.el-input__wrapper) {
   box-shadow: none !important;
   padding: 0;
+  background: transparent !important;
 }
 
 .search-box :deep(.el-input__inner) {
   font-size: 13px;
+  color: var(--color-text) !important;
 }
 
 .record-count {
   font-size: 13px;
-  color: #909399;
+  color: var(--color-text-subtle);
 }
 
 .history-list {
-  max-width: 800px;
+  max-width: 900px;
 }
 
 .history-date {
   font-size: 13px;
-  color: #909399;
-  font-weight: 500;
+  color: var(--color-primary);
+  font-weight: 650;
   padding: 12px 0 8px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--color-border);
   margin-bottom: 12px;
+  letter-spacing: 0.3px;
 }
 
 .history-item {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
   margin-bottom: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(8px);
 }
 
 .history-item:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--color-border-glow);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
 }
 
 .history-item-header {
@@ -276,14 +286,14 @@ onMounted(loadMessages)
 .history-item-header .question {
   font-size: 14px;
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text);
   flex: 1;
   margin-right: 16px;
 }
 
 .history-item-header .time {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   white-space: nowrap;
 }
 
@@ -293,7 +303,7 @@ onMounted(loadMessages)
 
 .history-item-body .answer {
   font-size: 13px;
-  color: #606266;
+  color: var(--color-text-muted);
   line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -303,8 +313,8 @@ onMounted(loadMessages)
 
 .history-item-footer {
   padding: 10px 20px;
-  background: #f9fafc;
-  border-top: 1px solid #f0f0f0;
+  background: rgba(20, 28, 50, 0.4);
+  border-top: 1px solid var(--color-border-soft);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -322,26 +332,27 @@ onMounted(loadMessages)
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: #ecf5ff;
-  border-radius: 4px;
+  background: var(--color-primary-soft);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  border-radius: 999px;
   font-size: 11px;
-  color: #409eff;
+  color: var(--color-primary);
 }
 
 .feedback-tag {
   font-size: 12px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 .feedback-good {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 
 .feedback-bad {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .history-item-footer .actions {
@@ -351,16 +362,17 @@ onMounted(loadMessages)
 
 .history-item-footer .actions span {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   cursor: pointer;
+  transition: color 0.2s;
 }
 
 .history-item-footer .actions span:hover {
-  color: #667eea;
+  color: var(--color-primary);
 }
 
 .history-item-footer .actions span.delete:hover {
-  color: #f56c6c;
+  color: var(--color-danger);
 }
 
 .pagination {
@@ -373,20 +385,20 @@ onMounted(loadMessages)
 /* Detail Dialog */
 .qa-bubble {
   padding: 14px 16px;
-  border-radius: 10px;
+  border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
   line-height: 1.7;
 }
 
 .qa-bubble.question {
-  background: #ecf5ff;
-  border: 1px solid #d9ecff;
+  background: var(--color-primary-soft);
+  border: 1px solid rgba(14, 165, 233, 0.2);
 }
 
 .qa-bubble.answer {
-  background: #f5f7fa;
-  border: 1px solid #ebeef5;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .qa-bubble .role {
@@ -396,11 +408,11 @@ onMounted(loadMessages)
 }
 
 .qa-bubble .role.q {
-  color: #409eff;
+  color: var(--color-primary);
 }
 
 .qa-bubble .role.a {
-  color: #67c23a;
+  color: var(--color-success);
 }
 
 .sources-section {
@@ -409,7 +421,7 @@ onMounted(loadMessages)
 
 .sources-section h4 {
   font-size: 14px;
-  color: #606266;
+  color: var(--color-text-muted);
   margin-bottom: 10px;
 }
 
@@ -421,8 +433,9 @@ onMounted(loadMessages)
 
 .source-list li {
   padding: 8px 12px;
-  background: #f9fafc;
-  border-radius: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 7px;
   margin-bottom: 6px;
   font-size: 13px;
   display: flex;
@@ -434,7 +447,7 @@ onMounted(loadMessages)
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  background: #667eea;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -448,7 +461,30 @@ onMounted(loadMessages)
 
 .source-meta {
   font-size: 11px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-top: 2px;
+}
+
+@media (max-width: 760px) {
+  .user-history-page {
+    padding: 16px;
+  }
+
+  .toolbar,
+  .toolbar-left {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .history-item-header,
+  .history-item-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 </style>

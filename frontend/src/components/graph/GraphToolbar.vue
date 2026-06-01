@@ -57,10 +57,12 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 
 <style scoped>
 .graph-toolbar {
-  background: #fff;
-  border: 1px solid #e7eaf0;
+  background:
+    linear-gradient(135deg, rgba(8, 15, 30, 0.94), rgba(15, 23, 42, 0.9)),
+    #08101f;
+  border: 1px solid rgba(125, 211, 252, 0.18);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
   padding: 14px 16px;
   display: flex;
   justify-content: space-between;
@@ -75,14 +77,14 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 .title {
   font-size: 16px;
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   line-height: 1.2;
 }
 
 .subtitle {
   margin-top: 4px;
   font-size: 12px;
-  color: #7a8494;
+  color: #93c5fd;
 }
 
 .left {
@@ -100,25 +102,25 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 4px 0 12px;
   height: 38px;
-  background: #f8fafc;
+  background: rgba(15, 23, 42, 0.78);
   width: min(360px, 100%);
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 
 .search-box:focus-within {
-  border-color: #2563eb;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .search-box svg {
   width: 16px;
   height: 16px;
-  fill: #c0c4cc;
+  fill: #93c5fd;
   margin-right: 8px;
   flex-shrink: 0;
 }
@@ -128,13 +130,13 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
   outline: none;
   flex: 1;
   font-size: 13px;
-  color: #1f2937;
+  color: #eaf2ff;
   background: transparent;
   min-width: 0;
 }
 
 .search-box input::placeholder {
-  color: #c0c4cc;
+  color: #64748b;
 }
 
 .search-action {
@@ -151,8 +153,8 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 }
 
 .search-action:hover {
-  background: #eaf1ff;
-  color: #2563eb;
+  background: rgba(37, 99, 235, 0.2);
+  color: #bfdbfe;
 }
 
 .search-action svg {
@@ -164,19 +166,19 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 
 .filter-select {
   height: 38px;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: #475569;
-  background: #fff;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.78);
   cursor: pointer;
   outline: none;
   transition: border-color 0.2s;
 }
 
 .filter-select:focus {
-  border-color: #2563eb;
+  border-color: rgba(125, 211, 252, 0.56);
 }
 
 .btn {
@@ -200,23 +202,23 @@ defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
 }
 
 .btn-primary {
-  background: #2563eb;
-  color: #fff;
+  background: #7dd3fc;
+  color: #07111f;
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #bae6fd;
 }
 
 .btn-default {
-  background: #fff;
-  color: #475569;
-  border-color: #d8dee8;
+  background: rgba(15, 23, 42, 0.78);
+  color: #dbeafe;
+  border-color: rgba(125, 211, 252, 0.22);
 }
 
 .btn-default:hover {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: rgba(125, 211, 252, 0.56);
+  color: #ffffff;
 }
 
 @media (max-width: 1100px) {

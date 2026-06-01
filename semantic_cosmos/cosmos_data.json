@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "name": "Semantic Cosmos",
+  "categories": {
+    "Society": { "label": "社会", "color": "#FACC15" },
+    "Self": { "label": "自我", "color": "#7DD3FC" },
+    "Nature": { "label": "自然", "color": "#86EFAC" },
+    "Emotion": { "label": "情绪", "color": "#F9A8D4" },
+    "Abstract": { "label": "抽象", "color": "#C4B5FD" },
+    "Knowledge": { "label": "知识", "color": "#93C5FD" },
+    "Art": { "label": "艺术", "color": "#FB7185" },
+    "Creation": { "label": "创造", "color": "#5EEAD4" }
+  },
+  "nodes": [
+    { "id": "soc-justice", "name": "正义", "category": "Society", "weight": 9, "description": "社会制度中关于公平、权利与秩序的核心价值。", "x": -74, "y": 28, "z": 16 },
+    { "id": "soc-contract", "name": "契约", "category": "Society", "weight": 7, "description": "个体与组织之间形成责任边界的协议结构。", "x": -62, "y": 35, "z": 24 },
+    { "id": "soc-rule", "name": "规则", "category": "Society", "weight": 8, "description": "维持组织运行和群体协作的行为约束。", "x": -80, "y": 16, "z": 2 },
+    { "id": "self-consciousness", "name": "意识", "category": "Self", "weight": 10, "description": "主体对自身、外界和时间连续性的觉察。", "x": -56, "y": -24, "z": -6 },
+    { "id": "self-memory", "name": "记忆", "category": "Self", "weight": 8, "description": "经验在心智系统中的编码、保存与召回。", "x": -42, "y": -18, "z": -18 },
+    { "id": "self-identity", "name": "身份", "category": "Self", "weight": 7, "description": "个体对自我位置、角色和归属的认知。", "x": -66, "y": -8, "z": 4 },
+    { "id": "nat-forest", "name": "森林", "category": "Nature", "weight": 6, "description": "由生物多样性构成的复杂生态系统。", "x": -8, "y": 44, "z": -20 },
+    { "id": "nat-ocean", "name": "海洋", "category": "Nature", "weight": 8, "description": "覆盖地表多数区域、连接气候与生命循环的水体。", "x": 10, "y": 58, "z": -6 },
+    { "id": "nat-time", "name": "时间", "category": "Nature", "weight": 9, "description": "事件顺序、变化尺度和存在流动性的度量。", "x": 2, "y": 30, "z": 8 },
+    { "id": "emo-love", "name": "爱", "category": "Emotion", "weight": 9, "description": "亲密、关怀、依恋与奉献交织的情感状态。", "x": -20, "y": -52, "z": 22 },
+    { "id": "emo-fear", "name": "恐惧", "category": "Emotion", "weight": 7, "description": "面对威胁和不确定性时产生的防御性情绪。", "x": 2, "y": -48, "z": 8 },
+    { "id": "emo-hope", "name": "希望", "category": "Emotion", "weight": 8, "description": "面向未来可能性的积极预期。", "x": -8, "y": -34, "z": 34 },
+    { "id": "abs-truth", "name": "真理", "category": "Abstract", "weight": 10, "description": "对事实、逻辑和存在本质的可靠表达。", "x": 34, "y": 16, "z": 38 },
+    { "id": "abs-freedom", "name": "自由", "category": "Abstract", "weight": 9, "description": "个体选择、行动和思想不受不当限制的状态。", "x": 24, "y": 4, "z": 22 },
+    { "id": "abs-meaning", "name": "意义", "category": "Abstract", "weight": 8, "description": "事物在理解框架中获得的价值和指向。", "x": 46, "y": 24, "z": 28 },
+    { "id": "kn-algorithm", "name": "算法", "category": "Knowledge", "weight": 8, "description": "解决问题的有限步骤与可执行逻辑。", "x": 70, "y": 30, "z": -24 },
+    { "id": "kn-language", "name": "语言", "category": "Knowledge", "weight": 9, "description": "符号系统、沟通机制与思想表达载体。", "x": 58, "y": 12, "z": -8 },
+    { "id": "kn-model", "name": "模型", "category": "Knowledge", "weight": 7, "description": "对现实或概念系统的抽象化表示。", "x": 78, "y": 20, "z": 4 },
+    { "id": "art-poetry", "name": "诗歌", "category": "Art", "weight": 6, "description": "以节奏、意象和语言张力组织情感经验的艺术。", "x": 44, "y": -44, "z": 12 },
+    { "id": "art-music", "name": "音乐", "category": "Art", "weight": 8, "description": "通过声音结构触发情绪、记忆与身体感知。", "x": 58, "y": -28, "z": 2 },
+    { "id": "art-image", "name": "图像", "category": "Art", "weight": 7, "description": "以视觉符号承载信息和审美经验的媒介。", "x": 34, "y": -30, "z": 24 },
+    { "id": "cre-code", "name": "代码", "category": "Creation", "weight": 8, "description": "将意图转译为机器可执行结构的创造性语言。", "x": -8, "y": -8, "z": -50 },
+    { "id": "cre-design", "name": "设计", "category": "Creation", "weight": 9, "description": "将需求、约束和审美转化为可用形态的过程。", "x": 12, "y": -2, "z": -36 },
+    { "id": "cre-invention", "name": "发明", "category": "Creation", "weight": 7, "description": "通过组合、实验和洞察生成新的工具或方法。", "x": 0, "y": 12, "z": -58 }
+  ]
+}

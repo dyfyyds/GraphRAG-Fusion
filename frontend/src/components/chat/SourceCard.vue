@@ -17,17 +17,19 @@ defineEmits(['click'])
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: #ecf5ff;
-  border-radius: 4px;
+  background: var(--color-primary-soft);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 999px;
   font-size: 12px;
-  color: #409eff;
+  color: var(--color-primary);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 .source-item:hover {
-  background: #d9ecff;
+  background: rgba(14, 165, 233, 0.18);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
 }
 .source-item .score {
-  color: #909399;
+  color: var(--color-text-subtle);
 }
 </style>

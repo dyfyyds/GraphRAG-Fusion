@@ -109,15 +109,15 @@ const groupedConversations = computed(() => {
 <style scoped>
 .conversation-sidebar {
   width: 280px;
-  background: #fff;
-  border-right: 1px solid #e8e8e8;
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 .sidebar-header {
-  padding: 20px;
-  border-bottom: 1px solid #ebeef5;
+  padding: 18px;
+  border-bottom: 1px solid var(--color-border);
 }
 .logo-row {
   display: flex;
@@ -133,11 +133,12 @@ const groupedConversations = computed(() => {
 .logo .icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.3);
 }
 .logo .icon svg {
   width: 18px;
@@ -146,28 +147,30 @@ const groupedConversations = computed(() => {
 }
 .logo span {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--color-text);
 }
 .new-chat-btn {
   width: 36px;
   height: 36px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
-  background: #fff;
+  background: var(--color-surface);
 }
 .new-chat-btn:hover {
-  border-color: #667eea;
-  background: #ecf5ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.15);
 }
 .new-chat-btn svg {
   width: 18px;
   height: 18px;
-  fill: #606266;
+  fill: var(--color-text-muted);
 }
 .search-input {
   width: 100%;
@@ -180,12 +183,13 @@ const groupedConversations = computed(() => {
 .conv-date-group {
   padding: 8px 12px 4px;
   font-size: 12px;
-  color: #909399;
-  font-weight: 500;
+  color: var(--color-text-subtle);
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 .conv-item {
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   transition: all 0.2s;
   margin-bottom: 2px;
@@ -194,14 +198,15 @@ const groupedConversations = computed(() => {
   align-items: center;
 }
 .conv-item:hover {
-  background: #f5f7fa;
+  background: var(--color-surface-hover);
 }
 .conv-item.active {
-  background: #ecf5ff;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(139, 92, 246, 0.08));
+  border: 1px solid rgba(14, 165, 233, 0.2);
 }
 .conv-item .title {
   font-size: 13px;
-  color: #303133;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -223,14 +228,14 @@ const groupedConversations = computed(() => {
 .conv-item .delete-btn svg {
   width: 14px;
   height: 14px;
-  fill: #909399;
+  fill: var(--color-text-subtle);
 }
 .conv-item .delete-btn:hover svg {
-  fill: #f56c6c;
+  fill: var(--color-danger);
 }
 .sidebar-footer {
   padding: 12px 16px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -239,7 +244,7 @@ const groupedConversations = computed(() => {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,17 +252,19 @@ const groupedConversations = computed(() => {
   font-size: 14px;
   font-weight: 600;
   flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.25);
 }
 .sidebar-footer .user-info {
   flex: 1;
 }
 .sidebar-footer .user-info .name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 650;
+  color: var(--color-text);
 }
 .sidebar-footer .user-info .role {
   font-size: 11px;
-  color: #909399;
+  color: var(--color-text-subtle);
 }
 .sidebar-footer .settings-btn {
   width: 30px;
@@ -268,13 +275,22 @@ const groupedConversations = computed(() => {
   justify-content: center;
   cursor: pointer;
   text-decoration: none;
+  transition: all 0.2s;
 }
 .sidebar-footer .settings-btn:hover {
-  background: #f5f7fa;
+  background: var(--color-surface-hover);
 }
 .sidebar-footer .settings-btn svg {
   width: 18px;
   height: 18px;
-  fill: #909399;
+  fill: var(--color-text-subtle);
+}
+
+@media (max-width: 900px) {
+  .conversation-sidebar {
+    width: 0;
+    border-right: none;
+    overflow: hidden;
+  }
 }
 </style>

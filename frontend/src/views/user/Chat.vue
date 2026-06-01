@@ -206,25 +206,30 @@ onMounted(loadConversations)
 .chat-layout {
   display: flex;
   height: 100%;
-  background: #f5f5f5;
+  background: var(--color-bg);
 }
 .chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--color-bg-nebula);
+  min-width: 0;
+  position: relative;
 }
 .chat-header {
-  height: 56px;
-  border-bottom: 1px solid #ebeef5;
+  height: 60px;
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  background: rgba(8, 12, 22, 0.6);
+  backdrop-filter: blur(12px);
 }
 .chat-header .title {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 650;
+  color: var(--color-text);
 }
 .chat-header .actions {
   display: flex;
@@ -233,24 +238,29 @@ onMounted(loadConversations)
 .chat-header .action-btn {
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: all 0.2s;
 }
 .chat-header .action-btn:hover {
-  background: #f5f7fa;
+  background: var(--color-danger-soft);
 }
 .chat-header .action-btn svg {
   width: 18px;
   height: 18px;
-  fill: #606266;
+  fill: var(--color-text-muted);
+}
+.chat-header .action-btn:hover svg {
+  fill: var(--color-danger);
 }
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 28px;
+  background: transparent;
 }
 .welcome-state {
   display: flex;
@@ -258,17 +268,29 @@ onMounted(loadConversations)
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #909399;
+  color: var(--color-text-subtle);
+  text-align: center;
 }
 .welcome-state .welcome-icon {
   width: 64px;
   height: 64px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  border-radius: 16px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 20px;
+  box-shadow: 0 0 24px rgba(14, 165, 233, 0.3);
+  position: relative;
+}
+.welcome-state .welcome-icon::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(139, 92, 246, 0.2));
+  z-index: -1;
+  filter: blur(10px);
 }
 .welcome-state .welcome-icon svg {
   width: 32px;
@@ -277,24 +299,30 @@ onMounted(loadConversations)
 }
 .welcome-state h2 {
   font-size: 20px;
-  color: #303133;
+  color: var(--color-text);
   margin-bottom: 8px;
+  background: linear-gradient(90deg, #fff, var(--color-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .welcome-state p {
   font-size: 14px;
+  color: var(--color-text-muted);
 }
 .sources-bar {
   display: flex;
   gap: 8px;
   padding: 8px 24px;
   overflow-x: auto;
-  border-top: 1px solid #e4e7ed;
-  background: #fafafa;
+  border-top: 1px solid var(--color-border);
+  background: rgba(8, 12, 22, 0.6);
+  backdrop-filter: blur(8px);
   align-items: center;
 }
 .sources-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   flex-shrink: 0;
 }
 
@@ -318,17 +346,20 @@ onMounted(loadConversations)
   flex-shrink: 0;
   font-size: 14px;
   font-weight: 600;
-  background: linear-gradient(135deg, #67c23a, #4caf50);
+  background: linear-gradient(135deg, var(--color-success), var(--color-teal));
   color: #fff;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
 }
 .message .bubble {
   padding: 14px 18px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: 14px;
   line-height: 1.7;
-  background: #f5f7fa;
-  color: #303133;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
+  backdrop-filter: blur(8px);
 }
 .typing-indicator {
   display: flex;
@@ -338,9 +369,10 @@ onMounted(loadConversations)
 .typing-indicator .dot {
   width: 8px;
   height: 8px;
-  background: #c0c4cc;
+  background: var(--color-primary);
   border-radius: 50%;
   animation: typing 1.4s infinite;
+  box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
 }
 .typing-indicator .dot:nth-child(2) {
   animation-delay: 0.2s;
@@ -353,9 +385,17 @@ onMounted(loadConversations)
   60%,
   100% {
     transform: translateY(0);
+    opacity: 0.4;
   }
   30% {
     transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 900px) {
+  .chat-messages {
+    padding: 18px;
   }
 }
 </style>

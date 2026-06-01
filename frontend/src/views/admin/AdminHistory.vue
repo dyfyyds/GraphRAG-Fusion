@@ -274,16 +274,17 @@ onMounted(loadData)
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
   padding: 0 12px;
   height: 36px;
-  background: #fff;
+  background: var(--color-surface);
   width: 240px;
+  backdrop-filter: blur(8px);
 }
 
 .search-box .el-icon {
-  color: #c0c4cc;
+  color: var(--color-text-subtle);
   margin-right: 8px;
   font-size: 16px;
 }
@@ -291,17 +292,21 @@ onMounted(loadData)
 .search-box :deep(.el-input__wrapper) {
   box-shadow: none !important;
   padding: 0;
+  background: transparent !important;
 }
 
 .search-box :deep(.el-input__inner) {
   font-size: 13px;
+  color: var(--color-text) !important;
 }
 
 .table-card {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
   overflow: hidden;
+  backdrop-filter: blur(8px);
 }
 
 .question-text {
@@ -323,12 +328,13 @@ onMounted(loadData)
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--color-primary);
+  box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
 }
 
 .source-text {
   font-size: 12px;
-  color: #606266;
+  color: var(--color-text-muted);
 }
 
 .feedback-icons {
@@ -347,32 +353,33 @@ onMounted(loadData)
 }
 
 .feedback-icons .like {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 
 .feedback-icons .dislike {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .feedback-icons .none {
-  background: #f5f7fa;
-  color: #c0c4cc;
+  background: var(--color-surface-muted);
+  color: var(--color-text-subtle);
 }
 
 .action-btn {
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
   border: none;
   background: transparent;
-  color: #409eff;
+  color: var(--color-primary);
+  transition: all 0.2s;
 }
 
 .action-btn:hover {
-  background: #ecf5ff;
+  background: var(--color-primary-soft);
 }
 
 .pagination {
@@ -384,7 +391,7 @@ onMounted(loadData)
 
 .pagination .info {
   font-size: 13px;
-  color: #909399;
+  color: var(--color-text-subtle);
 }
 
 /* Detail Dialog Styles */
@@ -398,10 +405,10 @@ onMounted(loadData)
 
 .detail-section h4 {
   font-size: 14px;
-  color: #606266;
+  color: var(--color-text-muted);
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .info-grid {
@@ -412,31 +419,31 @@ onMounted(loadData)
 
 .info-grid .label {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-bottom: 4px;
 }
 
 .info-grid .value {
   font-size: 14px;
-  color: #303133;
+  color: var(--color-text);
 }
 
 .qa-bubble {
   padding: 14px 16px;
-  border-radius: 10px;
+  border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
   line-height: 1.7;
 }
 
 .qa-bubble.question {
-  background: #ecf5ff;
-  border: 1px solid #d9ecff;
+  background: var(--color-primary-soft);
+  border: 1px solid rgba(14, 165, 233, 0.2);
 }
 
 .qa-bubble.answer {
-  background: #f5f7fa;
-  border: 1px solid #ebeef5;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .qa-bubble .role {
@@ -446,11 +453,11 @@ onMounted(loadData)
 }
 
 .qa-bubble .role.q {
-  color: #409eff;
+  color: var(--color-primary);
 }
 
 .qa-bubble .role.a {
-  color: #67c23a;
+  color: var(--color-success);
 }
 
 .source-list {
@@ -461,8 +468,9 @@ onMounted(loadData)
 
 .source-list li {
   padding: 8px 12px;
-  background: #f9fafc;
-  border-radius: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 7px;
   margin-bottom: 6px;
   font-size: 13px;
   display: flex;
@@ -474,7 +482,7 @@ onMounted(loadData)
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  background: #667eea;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -488,7 +496,19 @@ onMounted(loadData)
 
 .source-meta {
   font-size: 11px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .toolbar-left {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .search-box {
+    width: 100%;
+  }
 }
 </style>
