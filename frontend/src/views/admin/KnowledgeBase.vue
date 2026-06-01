@@ -203,12 +203,14 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import request from '../../api/request'
+import { emit } from '../../utils/eventBus'
+import { subscribeDocumentEvents } from '../../utils/documentEvents'
 
 // ---- Data ----
 const documents = ref([])
 const chunks = ref([])
 const drawerVisible = ref(false)
-let pollingTimer = null
+let unsubscribeDocumentEvents = null
 
 // Filter / search state
 const searchKeyword = ref('')
@@ -372,7 +374,6 @@ async function startUpload() {
     uploadFiles.value = []
     showUploadModal.value = false
     await loadDocuments()
-    startPolling()  // 上传后自动开始轮询解析状态
   } catch (error) {
     console.error('上传失败:', error)
     ElMessage.error('上传失败: ' + (error.response?.data?.message || error.message || '未知错误'))
@@ -381,40 +382,27 @@ async function startUpload() {
   }
 }
 
-// ---- Polling: 自动刷新解析中/图谱构建中的文档状态 ----
-function startPolling() {
-  if (pollingTimer) return
-  pollingTimer = setInterval(async () => {
-    const hasActiveJobs = documents.value.some(d => d.status === 'parsing' || d.status === 'building_graph')
-    if (!hasActiveJobs) {
-      stopPolling()
-      return
-    }
-    await loadDocuments()
-  }, 2000)
-}
-
-function stopPolling() {
-  if (pollingTimer) {
-    clearInterval(pollingTimer)
-    pollingTimer = null
-  }
-}
-
 // ---- API calls ----
 async function loadDocuments() {
   try {
     const res = await request.get('/documents')
-    documents.value = Array.isArray(res) ? res : (res.items || [])
+    applyDocuments(Array.isArray(res) ? res : (res.items || []))
+
     const graphFailed = documents.value.find(d => d.status === 'graph_failed' && d.error_message)
     if (graphFailed) {
       ElMessage.warning(graphFailed.error_message)
     }
-    // 有解析中或图谱构建中的文档则自动轮询
-    if (documents.value.some(d => d.status === 'parsing' || d.status === 'building_graph')) {
-      startPolling()
-    }
   } catch {}
+}
+
+function applyDocuments(nextDocuments) {
+  const oldStatuses = documents.value.map(d => `${d.id}:${d.status}:${d.chunk_count}:${d.error_message || ''}`)
+  documents.value = nextDocuments
+  const newStatuses = documents.value.map(d => `${d.id}:${d.status}:${d.chunk_count}:${d.error_message || ''}`)
+
+  if (oldStatuses.length > 0 && JSON.stringify(oldStatuses) !== JSON.stringify(newStatuses)) {
+    emit('documents:updated', { documents: documents.value })
+  }
 }
 
 async function viewChunks(row) {
@@ -437,14 +425,26 @@ async function reparseDoc(row) {
 async function deleteDoc(row) {
   await ElMessageBox.confirm('确定删除此文档？', '确认')
   try {
-    await request.delete(`/documents/${row.id}`)
-    ElMessage.success('已删除')
+    const res = await request.delete(`/documents/${row.id}`)
+    if (res?.success) {
+      ElMessage.success('已删除')
+    } else {
+      ElMessage.warning(res?.message || '部分数据删除失败')
+    }
     await loadDocuments()
   } catch {}
 }
 
-onMounted(loadDocuments)
-onUnmounted(stopPolling)
+onMounted(() => {
+  loadDocuments()
+  unsubscribeDocumentEvents = subscribeDocumentEvents(({ event, data }) => {
+    if (event !== 'documents') return
+    applyDocuments(data.items || [])
+  })
+})
+onUnmounted(() => {
+  unsubscribeDocumentEvents?.()
+})
 </script>
 
 <style scoped>

@@ -1,8 +1,12 @@
+import asyncio
+import json
 import os
 from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.mysql import get_db
+from app.db.mysql import async_session
 from app.dependencies import get_current_user
 from app.schemas.documents import DocumentOut, DocumentListResponse, DocumentStatsOut, ChunkOut, UploadResponse
 from app.services import document_service
@@ -29,6 +33,71 @@ async def get_document_stats(db: AsyncSession = Depends(get_db)):
     return await document_service.get_document_stats(db)
 
 
+@router.get("/events")
+async def stream_document_events(_user: dict = Depends(get_current_user)):
+    async def event_generator():
+        last_signature = None
+        while True:
+            try:
+                async with async_session() as db:
+                    result = await document_service.list_documents(db, page=1, page_size=100)
+                    payload = {
+                        "items": [
+                            DocumentOut.model_validate(item).model_dump(mode="json")
+                            for item in result.items
+                        ],
+                        "total": result.total,
+                        "page": result.page,
+                        "page_size": result.page_size,
+                        "pages": result.pages,
+                    }
+
+                signature = json.dumps(
+                    [
+                        [
+                            item["id"],
+                            item["status"],
+                            item["chunk_count"],
+                            item.get("error_message"),
+                            item["updated_at"],
+                        ]
+                        for item in payload["items"]
+                    ],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+
+                if signature != last_signature:
+                    last_signature = signature
+                    yield f"event: documents\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    yield ": heartbeat\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                data = json.dumps({"message": str(exc)[:300]}, ensure_ascii=False)
+                yield f"event: error\ndata: {data}\n\n"
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.delete("/all")
+async def delete_all_documents(db: AsyncSession = Depends(get_db)):
+    """清空所有文档和相关数据"""
+    result = await document_service.delete_all_documents(db)
+    return result
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -52,9 +121,9 @@ async def upload_document(
 
 
 @router.delete("/{doc_id}")
-async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
-    await document_service.delete_document(db, doc_id)
-    return {"message": "文档已删除"}
+async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    result = await document_service.delete_document(db, doc_id)
+    return result
 
 
 @router.post("/{doc_id}/reparse", response_model=DocumentOut)

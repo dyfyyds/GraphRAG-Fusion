@@ -163,6 +163,37 @@ async def delete_relation(source: str, target: str, relation_type: str) -> bool:
         return False
 
 
+async def delete_by_document(document_id: int) -> dict:
+    """删除文档关联的知识图谱节点，返回各步骤执行结果"""
+    result = {"neo4j": False, "error": None}
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(5):
+            async with driver.session() as session:
+                await session.run(
+                    "MATCH (e:Entity) WHERE e.document_id = $doc_id DETACH DELETE e",
+                    doc_id=document_id,
+                )
+                result["neo4j"] = True
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"删除文档 {document_id} 的图谱节点失败: {e}")
+        result["error"] = str(e)
+    return result
+
+
+async def delete_all_entities() -> dict:
+    """清空 Neo4j 所有节点和关系"""
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(10):
+            async with driver.session() as session:
+                await session.run("MATCH (n) DETACH DELETE n")
+                return {"success": True, "message": "已清空所有图谱节点"}
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"清空Neo4j失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
 async def get_graph_stats() -> dict:
     driver = await get_neo4j_driver()
     try:
