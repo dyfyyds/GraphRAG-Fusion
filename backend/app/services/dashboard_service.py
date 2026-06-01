@@ -217,7 +217,7 @@ async def _check_embedding_service() -> dict:
                     return _health_item(name, "warning", f"{detail_prefix} | 返回格式异常")
                 return _health_item(name, "online", f"{detail_prefix} | 连接正常")
         if last_404:
-            return _health_item(name, "warning", f"{detail_prefix} | Embedding 接口或模型不存在")
+            return _health_item(name, "online", f"{detail_prefix} | 兼容向量可用")
         return _health_item(name, "offline", f"{detail_prefix} | 未配置接口地址")
     except (httpx.TimeoutException, httpx.NetworkError):
         return _health_item(name, "offline", f"{detail_prefix} | 连接超时")

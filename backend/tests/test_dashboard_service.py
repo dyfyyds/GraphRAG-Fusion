@@ -58,7 +58,7 @@ async def test_llm_health_uses_runtime_model_name(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_embedding_health_warns_when_endpoint_or_model_missing(monkeypatch):
+async def test_embedding_health_reports_compat_mode_when_remote_endpoint_is_missing(monkeypatch):
     async def fake_config():
         return EmbeddingRuntimeConfig(
             api_url="https://api.deepseek.com/embeddings",
@@ -77,8 +77,8 @@ async def test_embedding_health_warns_when_endpoint_or_model_missing(monkeypatch
     item = await dashboard_service._check_embedding_service()
 
     assert item["name"] == "Embedding 服务 (deepseek-v4-pro)"
-    assert item["status"] == "warning"
-    assert "接口或模型不存在" in item["detail"]
+    assert item["status"] == "online"
+    assert "兼容向量可用" in item["detail"]
 
 
 @pytest.mark.asyncio
