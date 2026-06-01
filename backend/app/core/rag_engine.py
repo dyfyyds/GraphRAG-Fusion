@@ -306,6 +306,7 @@ class RAGEngine:
                     "vector_id": c.vector_id,
                     "keyword_hits": len(matched_terms),
                     "keyword_term_count": len(terms),
+                    "matched_terms": matched_terms,
                 })
             return sorted(
                 items,
@@ -406,31 +407,75 @@ class RAGEngine:
                 return f"{document_id}:{chunk_index}"
             return f"{source_type}:{item.get('content', '')[:100]}"
 
+        def _merge_item(target: dict, item: dict):
+            sources = target.setdefault("retrieval_sources", [])
+            source = item.get("source")
+            if source and source not in sources:
+                sources.append(source)
+
+            for field in (
+                "document_id",
+                "document_name",
+                "page_number",
+                "chunk_index",
+                "vector_id",
+                "content",
+            ):
+                if target.get(field) in (None, "") and item.get(field) not in (None, ""):
+                    target[field] = item.get(field)
+
+            if item.get("source") == "keyword":
+                target["keyword_hits"] = max(target.get("keyword_hits", 0), item.get("keyword_hits", 0))
+                target["keyword_term_count"] = max(
+                    target.get("keyword_term_count", 0),
+                    item.get("keyword_term_count", 0),
+                )
+                target["matched_terms"] = item.get("matched_terms", target.get("matched_terms", []))
+
+        def _keyword_bonus(item: dict) -> float:
+            term_count = max(item.get("keyword_term_count", 0), 1)
+            hit_ratio = min(1.0, item.get("keyword_hits", 0) / term_count)
+            strong_hits = sum(1 for term in item.get("matched_terms", []) if len(term) >= 4 or ":" in term)
+            document_name = item.get("document_name", "")
+            policy_bonus = 0.0
+            if "制度" in document_name:
+                policy_bonus += 0.02
+            if "管理制度" in document_name:
+                policy_bonus += 0.01
+            return 0.03 * hit_ratio + 0.01 * min(strong_hits, 3) + policy_bonus
+
         for rank, item in enumerate(vector_results):
             key = _key(item)
             if key not in scores:
-                scores[key] = {**item, "score": 0}
+                scores[key] = {**item, "score": 0, "retrieval_sources": []}
+            _merge_item(scores[key], item)
             scores[key]["score"] += W_VEC / (RRF_K + rank + 1)
 
         for rank, item in enumerate(graph_results):
             key = _key(item)
             if key not in scores:
-                scores[key] = {**item, "score": 0}
+                scores[key] = {**item, "score": 0, "retrieval_sources": []}
+            _merge_item(scores[key], item)
             scores[key]["score"] += W_GRAPH / (RRF_K + rank + 1)
 
         for rank, item in enumerate(keyword_results):
             key = _key(item)
             if key not in scores:
-                scores[key] = {**item, "score": 0}
-            scores[key]["score"] += W_KW / (RRF_K + rank + 1)
+                scores[key] = {**item, "score": 0, "retrieval_sources": []}
+            _merge_item(scores[key], item)
+            scores[key]["score"] += W_KW / (RRF_K + rank + 1) + _keyword_bonus(item)
 
         return sorted(scores.values(), key=lambda x: x["score"], reverse=True)
 
     def _display_score(self, item: dict) -> float:
+        if item.get("keyword_hits") and item.get("keyword_term_count"):
+            keyword_score = min(1.0, item["keyword_hits"] / max(item["keyword_term_count"], 1))
+            if item.get("distance") is None:
+                return keyword_score
+            vector_score = max(0.0, min(1.0, 1 - float(item.get("distance", 1.0))))
+            return max(vector_score, keyword_score)
         if item.get("distance") is not None:
             return max(0.0, min(1.0, 1 - float(item.get("distance", 1.0))))
-        if item.get("keyword_hits") and item.get("keyword_term_count"):
-            return min(1.0, item["keyword_hits"] / max(item["keyword_term_count"], 1))
         return item.get("score", 0)
 
 
