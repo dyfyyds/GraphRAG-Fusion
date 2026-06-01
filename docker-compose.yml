@@ -112,6 +112,8 @@ services:
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     volumes:
+      # 绑定挂载源码：改动后 restart 即可生效，无需重构镜像
+      - ./backend:/app
       - uploads:/app/uploads
     depends_on:
       mysql:
@@ -174,6 +176,9 @@ services:
       dockerfile: Dockerfile
     container_name: rag-frontend
     restart: unless-stopped
+    volumes:
+      # 绑定挂载前端构建产物：宿主机 npm run build 后刷新即可生效，无需重构镜像
+      - ./frontend/dist:/usr/share/nginx/html:ro
     networks:
       - rag-network
 
