@@ -176,9 +176,6 @@ services:
       dockerfile: Dockerfile
     container_name: rag-frontend
     restart: unless-stopped
-    volumes:
-      # 绑定挂载前端构建产物：宿主机 npm run build 后刷新即可生效，无需重构镜像
-      - ./frontend/dist:/usr/share/nginx/html:ro
     networks:
       - rag-network
 
