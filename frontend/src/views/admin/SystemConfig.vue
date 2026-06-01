@@ -26,7 +26,7 @@
     </div>
 
     <!-- Tab 0: LLM Config -->
-    <div class="config-card model-config-card" v-show="activeTab === 'llm'">
+    <div v-if="activeTab === 'llm'" class="config-card model-config-card">
       <div class="model-editor">
       <div class="config-section">
         <h3>大语言模型 <span class="badge badge-required">必填</span></h3>
@@ -172,7 +172,7 @@
     </div>
 
     <!-- Tab 1: Embedding Config -->
-    <div class="config-card model-config-card" v-show="activeTab === 'embedding'">
+    <div v-else-if="activeTab === 'embedding'" class="config-card model-config-card">
       <div class="model-editor">
       <div class="config-section">
         <h3>Embedding 模型 <span class="badge badge-required">必填</span></h3>
@@ -288,7 +288,7 @@
     </div>
 
     <!-- Tab 2: Retrieval Config -->
-    <div class="config-card" v-show="activeTab === 'retrieval'">
+    <div v-else-if="activeTab === 'retrieval'" class="config-card">
       <div class="config-section">
         <h3>检索策略</h3>
         <div class="desc">配置 RAG 混合检索策略，影响回答的准确性和全面性</div>
@@ -363,7 +363,7 @@
     </div>
 
     <!-- Tab 3: Document Parsing Config -->
-    <div class="config-card" v-show="activeTab === 'docparse'">
+    <div v-else-if="activeTab === 'docparse'" class="config-card">
       <div class="config-section">
         <h3>分块策略</h3>
         <div class="desc">文档分块参数直接影响检索质量，较小的块提高精度，较大的块保留更多上下文</div>
@@ -462,7 +462,7 @@
     </div>
 
     <!-- Tab 4: System Status -->
-    <div class="config-card" v-show="activeTab === 'status'">
+    <div v-else-if="activeTab === 'status'" class="config-card">
       <div class="config-section">
         <h3>服务状态</h3>
         <div class="desc">各依赖服务的运行状态和关键指标</div>

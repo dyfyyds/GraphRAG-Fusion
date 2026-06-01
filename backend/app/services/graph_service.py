@@ -38,6 +38,62 @@ async def search_entities(query: str, limit: int = 20, entity_type: str | None =
         return []
 
 
+async def search_entity_context(query: str, limit: int = 5) -> list[dict]:
+    """Search matching entities and return their direct relationships for answer citations."""
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(10):
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (e)
+                    WHERE e.name CONTAINS $q
+                    OPTIONAL MATCH (e)-[out]->(out_node)
+                    OPTIONAL MATCH (in_node)-[in_rel]->(e)
+                    RETURN
+                        elementId(e) AS eid,
+                        e.name AS name,
+                        e.type AS type,
+                        e.description AS description,
+                        collect(DISTINCT {
+                            source: e.name,
+                            target: out_node.name,
+                            relation_type: out.rel_type
+                        }) AS outgoing,
+                        collect(DISTINCT {
+                            source: in_node.name,
+                            target: e.name,
+                            relation_type: in_rel.rel_type
+                        }) AS incoming
+                    LIMIT $limit
+                    """,
+                    q=query,
+                    limit=limit,
+                )
+                records = await result.data()
+                items = []
+                for record in records:
+                    relations = []
+                    for rel in (record.get("outgoing") or []) + (record.get("incoming") or []):
+                        if rel.get("source") and rel.get("target") and rel.get("relation_type"):
+                            relations.append({
+                                "source": rel["source"],
+                                "target": rel["target"],
+                                "relation_type": rel["relation_type"],
+                            })
+                    items.append({
+                        "id": record["eid"],
+                        "name": record.get("name") or "",
+                        "type": record.get("type") or "",
+                        "description": record.get("description") or "",
+                        "relations": relations,
+                    })
+                return items
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"search_entity_context error: {e}")
+        return []
+
+
 async def get_relations(limit: int = 100) -> list[dict]:
     driver = await get_neo4j_driver()
     try:

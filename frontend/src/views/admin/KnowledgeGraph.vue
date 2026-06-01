@@ -218,7 +218,6 @@ import * as d3 from 'd3'
 import GraphToolbar from '../../components/graph/GraphToolbar.vue'
 import request from '../../api/request'
 import { on } from '../../utils/eventBus'
-import { subscribeDocumentEvents } from '../../utils/documentEvents'
 
 const graphRef = ref()
 const selectedEntity = ref(null)
@@ -233,7 +232,9 @@ const rightPanelCollapsed = ref(false)
 let simulation = null
 let svg = null
 let zoomBehavior = null
-let lastDocumentSignature = ''
+let renderTimer = null
+let loadRequestId = 0
+let highlightedNode = null
 
 const newEntity = ref({ name: '', entity_type: 'Product', description: '' })
 const newRelation = ref({ source: '', target: '', relation_type: '包含', description: '' })
@@ -298,31 +299,65 @@ function getEntityRelationCount(entityId) {
 }
 
 async function loadGraph(query = '') {
+  const requestId = ++loadRequestId
   loading.value = true
   try {
     const [entRes, relRes] = await Promise.all([
       request.get('/graph/entities', { params: { q: query || undefined, limit: 1000, entity_type: typeFilter.value || undefined } }),
       request.get('/graph/relations', { params: { limit: 1000 } }),
     ])
+    if (requestId !== loadRequestId) return
     entities.value = Array.isArray(entRes) ? entRes : (entRes.data || [])
     relations.value = Array.isArray(relRes) ? relRes : (relRes.data || [])
     assignTypeStyles()
     renderGraph()
   } catch (err) {
-    ElMessage.error('加载知识图谱失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
+    if (requestId === loadRequestId) {
+      ElMessage.error('加载知识图谱失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
+    }
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) loading.value = false
   }
 }
 
-function renderGraph() {
-  if (!graphRef.value) return
+function cleanupGraph() {
+  if (renderTimer) {
+    clearTimeout(renderTimer)
+    renderTimer = null
+  }
 
   if (simulation) {
     simulation.stop()
     simulation = null
   }
-  graphRef.value.innerHTML = ''
+
+  if (svg) {
+    svg.selectAll('*').interrupt()
+    svg.on('.zoom', null)
+    svg.on('click', null)
+  }
+
+  if (graphRef.value) {
+    d3.select(graphRef.value).selectAll('*').interrupt().remove()
+  }
+
+  svg = null
+  zoomBehavior = null
+  highlightedNode = null
+}
+
+function scheduleRender(delay = 0) {
+  if (renderTimer) clearTimeout(renderTimer)
+  renderTimer = setTimeout(() => {
+    renderTimer = null
+    renderGraph()
+  }, delay)
+}
+
+function renderGraph() {
+  if (!graphRef.value) return
+
+  cleanupGraph()
 
   const width = graphRef.value.clientWidth || 800
   const height = graphRef.value.clientHeight || 550
@@ -369,7 +404,7 @@ function renderGraph() {
     .attr('fill', '#64748b')
     .attr('opacity', 0.55)
 
-  const g = svg.append('g')
+  const g = svg.append('g').attr('class', 'graph-root')
 
   zoomBehavior = d3.zoom()
     .scaleExtent([0.15, 5])
@@ -442,7 +477,7 @@ function renderGraph() {
       highlightNode(d)
     })
     .on('mouseenter', function(event, d) {
-      d3.select(this).select('.node-core').transition().duration(180).attr('filter', 'url(#shadow)')
+      d3.select(this).select('.node-core').interrupt().transition().duration(120).attr('filter', 'url(#shadow)')
       tooltip.style('opacity', 1).html(`<b>${d.name}</b><br><span style="opacity:.7">${getTypeName(d.type)} · ${d.connections} 个关系</span>`)
     })
     .on('mousemove', function(event) {
@@ -450,7 +485,7 @@ function renderGraph() {
       tooltip.style('left', mx + 'px').style('top', (my - 10) + 'px')
     })
     .on('mouseleave', function() {
-      d3.select(this).select('.node-core').transition().duration(180).attr('filter', null)
+      d3.select(this).select('.node-core').interrupt().transition().duration(120).attr('filter', null)
       tooltip.style('opacity', 0)
     })
 
@@ -527,8 +562,9 @@ function renderGraph() {
 }
 
 // ---- Highlight / Dim ----
-let highlightedNode = null
 function highlightNode(d) {
+  if (!svg) return
+  if (highlightedNode?.id === d.id) return
   highlightedNode = d
   selectedEntity.value = entities.value.find(e => e.id === d.id) || d
 
@@ -539,24 +575,29 @@ function highlightNode(d) {
   }
   connectedNames.add(d.name)
 
-  const nodeSel = d3.select('g.nodes').selectAll('g')
-  const linkSel = d3.select('g.links').selectAll('line')
-  const labelSel = d3.select('g.link-labels').selectAll('text')
+  const duration = entities.value.length > 300 ? 0 : 140
+  const nodeSel = svg.select('g.nodes').selectAll('g')
+  const linkSel = svg.select('g.links').selectAll('line')
+  const labelSel = svg.select('g.link-labels').selectAll('text')
+
+  nodeSel.selectAll('*').interrupt()
+  linkSel.interrupt()
+  labelSel.interrupt()
 
   nodeSel.select('.node-core')
-    .transition().duration(400)
+    .transition().duration(duration)
     .attr('stroke-opacity', n => connectedNames.has(n.name) ? 1 : 0.1)
     .attr('opacity', n => connectedNames.has(n.name) ? 1 : 0.2)
   nodeSel.select('.node-halo')
-    .transition().duration(400)
+    .transition().duration(duration)
     .attr('opacity', n => connectedNames.has(n.name) ? 1 : 0.12)
 
   nodeSel.select('text')
-    .transition().duration(400)
+    .transition().duration(duration)
     .attr('opacity', n => connectedNames.has(n.name) ? 1 : 0.15)
 
   linkSel
-    .transition().duration(400)
+    .transition().duration(duration)
     .attr('stroke-opacity', r => {
       return (r.source.name === d.name || r.target.name === d.name) ? 0.8 : 0.05
     })
@@ -565,7 +606,7 @@ function highlightNode(d) {
     })
 
   labelSel
-    .transition().duration(400)
+    .transition().duration(duration)
     .style('opacity', r => {
       return (r.source.name === d.name || r.target.name === d.name) ? 1 : 0.05
     })
@@ -575,27 +616,34 @@ function highlightNode(d) {
 }
 
 function resetHighlight() {
+  if (!svg || !highlightedNode) return
   highlightedNode = null
   selectedEntity.value = null
+  const duration = entities.value.length > 300 ? 0 : 140
 
-  d3.select('g.nodes').selectAll('g').select('.node-core')
-    .transition().duration(400)
+  svg.selectAll('g.nodes g *').interrupt()
+  svg.selectAll('g.links line').interrupt()
+  svg.selectAll('g.link-labels text').interrupt()
+
+  svg.select('g.nodes').selectAll('g').select('.node-core')
+    .transition().duration(duration)
     .attr('stroke-opacity', 1).attr('opacity', 1)
-  d3.select('g.nodes').selectAll('g').select('.node-halo')
-    .transition().duration(400)
+  svg.select('g.nodes').selectAll('g').select('.node-halo')
+    .transition().duration(duration)
     .attr('opacity', 1)
-  d3.select('g.nodes').selectAll('g').select('text')
-    .transition().duration(400)
+  svg.select('g.nodes').selectAll('g').select('text')
+    .transition().duration(duration)
     .attr('opacity', 1)
-  d3.select('g.links').selectAll('line')
-    .transition().duration(400)
+  svg.select('g.links').selectAll('line')
+    .transition().duration(duration)
     .attr('stroke-opacity', 0.35).attr('stroke-width', 1.5)
-  d3.select('g.link-labels').selectAll('text')
-    .transition().duration(400)
+  svg.select('g.link-labels').selectAll('text')
+    .transition().duration(duration)
     .style('opacity', 0.7).attr('font-weight', 400)
 }
 
 function dragStarted(event) {
+  if (!simulation) return
   if (!event.active) simulation.alphaTarget(0.3).restart()
   event.subject.fx = event.subject.x
   event.subject.fy = event.subject.y
@@ -605,6 +653,7 @@ function dragged(event) {
   event.subject.fy = event.y
 }
 function dragEnded(event) {
+  if (!simulation) return
   if (!event.active) simulation.alphaTarget(0)
   event.subject.fx = null
   event.subject.fy = null
@@ -614,7 +663,7 @@ function handleSearch(q) { loadGraph(q) }
 
 function toggleRightPanel() {
   rightPanelCollapsed.value = !rightPanelCollapsed.value
-  setTimeout(() => renderGraph(), 260)
+  scheduleRender(260)
 }
 
 async function deleteEntity(entity) {
@@ -641,19 +690,22 @@ async function deleteRelation(rel) {
 }
 
 function zoomIn() {
-  svg?.transition().duration(300).call(zoomBehavior.scaleBy, 1.3)
+  if (!svg || !zoomBehavior) return
+  svg.interrupt().transition().duration(180).call(zoomBehavior.scaleBy, 1.3)
 }
 function zoomOut() {
-  svg?.transition().duration(300).call(zoomBehavior.scaleBy, 0.7)
+  if (!svg || !zoomBehavior) return
+  svg.interrupt().transition().duration(180).call(zoomBehavior.scaleBy, 0.7)
 }
 function resetZoom() {
-  svg?.transition().duration(300).call(zoomBehavior.transform, d3.zoomIdentity)
+  if (!svg || !zoomBehavior) return
+  svg.interrupt().transition().duration(180).call(zoomBehavior.transform, d3.zoomIdentity)
 }
 function fitToView() {
-  if (!svg || !graphRef.value) return
+  if (!svg || !zoomBehavior || !graphRef.value) return
   const width = graphRef.value.clientWidth
   const height = graphRef.value.clientHeight || 500
-  svg.transition().duration(300).call(
+  svg.interrupt().transition().duration(180).call(
     zoomBehavior.transform,
     d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8).translate(-width / 2, -height / 2)
   )
@@ -691,30 +743,13 @@ const unsubscribe = on('documents:updated', () => {
   loadGraph()
 })
 
-let unsubscribeDocumentEvents = null
-
-function handleDocumentEvent(docs) {
-  const signature = JSON.stringify(docs.map(d => [d.id, d.status, d.chunk_count, d.error_message || '']))
-  if (!lastDocumentSignature) {
-    lastDocumentSignature = signature
-    return
-  }
-  if (signature === lastDocumentSignature) return
-
-  lastDocumentSignature = signature
-  loadGraph()
-}
-
 onMounted(() => {
   loadGraph()
-  unsubscribeDocumentEvents = subscribeDocumentEvents(({ event, data }) => {
-    if (event !== 'documents') return
-    handleDocumentEvent(data.items || [])
-  })
 })
 onUnmounted(() => {
   unsubscribe()
-  unsubscribeDocumentEvents?.()
+  loadRequestId++
+  cleanupGraph()
 })
 </script>
 
