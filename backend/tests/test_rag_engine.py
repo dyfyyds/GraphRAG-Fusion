@@ -162,5 +162,74 @@ def test_rrf_fusion_combines_same_document_chunk_across_retrievers():
     assert fused[0]["score"] > 0.01
 
 
+def test_keyword_match_can_outrank_weak_vector_match():
+    engine = RAGEngine()
+
+    fused = engine._rrf_fusion(
+        [{
+            "source": "vector",
+            "document_id": 12,
+            "document_name": "其他文档.pdf",
+            "chunk_index": 0,
+            "content": "无关内容",
+            "distance": 0.99,
+        }],
+        [],
+        [{
+            "source": "keyword",
+            "document_id": 55,
+            "document_name": "考勤管理制度.pdf",
+            "chunk_index": 1,
+            "content": "9:16-9:30 打卡视为严重迟到",
+            "keyword_hits": 6,
+            "keyword_term_count": 9,
+            "matched_terms": ["打卡", "迟到", "9:16", "9:30", "严重迟到"],
+        }],
+    )
+
+    assert fused[0]["document_name"] == "考勤管理制度.pdf"
+    assert engine._display_score(fused[0]) > 0.6
+
+
+def test_policy_document_keyword_match_outranks_handbook_summary():
+    engine = RAGEngine()
+
+    fused = engine._rrf_fusion(
+        [{
+            "source": "vector",
+            "document_id": 67,
+            "document_name": "新员工入职手册.pdf",
+            "chunk_index": 3,
+            "content": "9:16-9:30严重迟到扣2分",
+            "distance": 0.91,
+        }],
+        [],
+        [
+            {
+                "source": "keyword",
+                "document_id": 64,
+                "document_name": "考勤管理制度.pdf",
+                "chunk_index": 1,
+                "content": "9:16-9:30 打卡视为严重迟到",
+                "keyword_hits": 6,
+                "keyword_term_count": 9,
+                "matched_terms": ["打卡", "迟到", "9:16", "9:30", "严重迟到"],
+            },
+            {
+                "source": "keyword",
+                "document_id": 67,
+                "document_name": "新员工入职手册.pdf",
+                "chunk_index": 3,
+                "content": "9:16-9:30严重迟到扣2分",
+                "keyword_hits": 5,
+                "keyword_term_count": 9,
+                "matched_terms": ["打卡", "迟到", "9:16", "9:30", "严重迟到"],
+            },
+        ],
+    )
+
+    assert fused[0]["document_name"] == "考勤管理制度.pdf"
+
+
 async def _async_return(value):
     return value
