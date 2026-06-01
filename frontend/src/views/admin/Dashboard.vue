@@ -48,7 +48,10 @@
           <li class="status-item" v-for="s in systemStatus" :key="s.name">
             <div class="label">
               <div class="status-dot" :class="s.status"></div>
-              {{ s.name }}
+              <div class="status-copy">
+                <span>{{ s.name }}</span>
+                <small v-if="s.detail">{{ s.detail }}</small>
+              </div>
             </div>
             <span class="status-badge" :class="'badge-' + s.status">{{ s.statusText }}</span>
           </li>
@@ -108,13 +111,7 @@ const statCards = computed(() => [
 const systemStatus = computed(() => {
   const raw = stats.value.system_status
   if (Array.isArray(raw)) return raw
-  return [
-    { name: 'ChromaDB 向量库', status: 'online', statusText: '正常' },
-    { name: 'Neo4j 图数据库', status: 'online', statusText: '正常' },
-    { name: 'MySQL 数据库', status: 'online', statusText: '正常' },
-    { name: 'LLM 服务 (mimo-2.5-pro)', status: 'online', statusText: '正常' },
-    { name: 'Embedding 服务', status: 'online', statusText: '正常' },
-  ]
+  return []
 })
 
 const trendDateRange = computed(() => {
@@ -202,7 +199,8 @@ onMounted(async () => {
       stats.value.system_status = health.map(svc => ({
         name: svc.name,
         status: svc.status,
-        statusText: svc.status === 'online' ? '正常' : '异常',
+        statusText: statusTextOf(svc.status),
+        detail: svc.detail || '',
       }))
     }
   } catch {}
@@ -210,6 +208,12 @@ onMounted(async () => {
   renderTrendChart()
   renderPieChart()
 })
+
+function statusTextOf(status) {
+  if (status === 'online') return '正常'
+  if (status === 'warning') return '警告'
+  return '异常'
+}
 </script>
 
 <style scoped>
@@ -393,11 +397,29 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   font-size: 14px;
+  min-width: 0;
+}
+.status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.status-copy span,
+.status-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-copy small {
+  color: #909399;
+  font-size: 12px;
 }
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 .status-dot.online {
   background: #67c23a;
