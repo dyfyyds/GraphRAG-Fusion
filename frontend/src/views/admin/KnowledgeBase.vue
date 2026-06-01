@@ -53,6 +53,11 @@
         </el-select>
       </div>
       <div class="toolbar-right">
+        <template v-if="selectedIds.length > 1">
+          <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
+          <el-button class="btn-default" @click="batchReparse">批量解析</el-button>
+          <el-button class="btn-default btn-batch-delete" @click="batchDelete">批量删除</el-button>
+        </template>
         <el-button class="btn-default" @click="showUploadModal = true">
           <el-icon><Upload /></el-icon>
           上传文档
@@ -359,26 +364,59 @@ function removeUploadFile(index) {
   uploadFiles.value.splice(index, 1)
 }
 
+// 并发上传数：多个文件同时上传（避免一次性几十个请求压垮服务，限制为 5）
+const UPLOAD_CONCURRENCY = 5
+
+async function uploadOne(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  await request.post('/documents/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
 async function startUpload() {
   if (uploadFiles.value.length === 0) return
-  uploading.value = true
-  try {
-    for (const file of uploadFiles.value) {
-      const formData = new FormData()
-      formData.append('file', file)
-      await request.post('/documents/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+
+  const files = [...uploadFiles.value]
+  // 上传请求一旦发出，后端即异步解析；这里立即关闭弹窗并清空列表，
+  // 不再等待全部解析完成（解析/图谱构建会在后台进行，列表通过 SSE 自动刷新）
+  uploadFiles.value = []
+  showUploadModal.value = false
+  uploading.value = false
+  ElMessage.success(`已开始上传 ${files.length} 个文件，解析与图谱构建将在后台进行`)
+
+  // 并发上传：用固定数量的 worker 从队列里取文件，互不阻塞
+  let cursor = 0
+  let success = 0
+  let failed = 0
+  const failedNames = []
+
+  async function worker() {
+    while (cursor < files.length) {
+      const file = files[cursor++]
+      try {
+        await uploadOne(file)
+        success++
+      } catch (error) {
+        failed++
+        failedNames.push(file.name)
+        console.error('上传失败:', file.name, error)
+      }
     }
-    ElMessage.success('上传成功，已开始解析并构建知识图谱')
-    uploadFiles.value = []
-    showUploadModal.value = false
-    await loadDocuments()
-  } catch (error) {
-    console.error('上传失败:', error)
-    ElMessage.error('上传失败: ' + (error.response?.data?.message || error.message || '未知错误'))
-  } finally {
-    uploading.value = false
+  }
+
+  const workers = Array.from(
+    { length: Math.min(UPLOAD_CONCURRENCY, files.length) },
+    () => worker(),
+  )
+  await Promise.all(workers)
+
+  await loadDocuments()
+  if (failed === 0) {
+    ElMessage.success(`全部 ${success} 个文件上传完成`)
+  } else {
+    ElMessage.warning(`上传完成：成功 ${success} 个，失败 ${failed} 个（${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? ' 等' : ''}）`)
   }
 }
 
@@ -433,6 +471,62 @@ async function deleteDoc(row) {
     }
     await loadDocuments()
   } catch {}
+}
+
+function clearSelection() {
+  selectedIds.value = []
+  selectAll.value = false
+}
+
+// 并发执行器：固定数量 worker 处理任务队列，返回成功/失败计数
+async function runPool(items, limit, fn) {
+  let cursor = 0
+  let ok = 0
+  let fail = 0
+  async function worker() {
+    while (cursor < items.length) {
+      const item = items[cursor++]
+      try {
+        await fn(item)
+        ok++
+      } catch (e) {
+        fail++
+        console.error(e)
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
+  return { ok, fail }
+}
+
+async function batchReparse() {
+  const ids = [...selectedIds.value]
+  if (ids.length === 0) return
+  try {
+    await ElMessageBox.confirm(`确定对选中的 ${ids.length} 个文档重新解析？`, '批量解析')
+  } catch {
+    return
+  }
+  const { ok, fail } = await runPool(ids, 5, (id) => request.post(`/documents/${id}/reparse`))
+  clearSelection()
+  await loadDocuments()
+  if (fail === 0) ElMessage.success(`已提交 ${ok} 个文档重新解析，后台进行中`)
+  else ElMessage.warning(`提交完成：成功 ${ok} 个，失败 ${fail} 个`)
+}
+
+async function batchDelete() {
+  const ids = [...selectedIds.value]
+  if (ids.length === 0) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${ids.length} 个文档？该操作不可恢复。`, '批量删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  const { ok, fail } = await runPool(ids, 5, (id) => request.delete(`/documents/${id}`))
+  clearSelection()
+  await loadDocuments()
+  if (fail === 0) ElMessage.success(`已删除 ${ok} 个文档`)
+  else ElMessage.warning(`删除完成：成功 ${ok} 个，失败 ${fail} 个`)
 }
 
 onMounted(() => {
@@ -490,6 +584,21 @@ onUnmounted(() => {
 .toolbar-right {
   display: flex;
   gap: 12px;
+  align-items: center;
+}
+.selected-count {
+  font-size: 13px;
+  color: #2563eb;
+  font-weight: 600;
+}
+.btn-batch-delete {
+  color: #f56c6c;
+  border-color: #fbc4c4;
+}
+.btn-batch-delete:hover {
+  color: #fff;
+  background: #f56c6c;
+  border-color: #f56c6c;
 }
 .search-box {
   display: flex;

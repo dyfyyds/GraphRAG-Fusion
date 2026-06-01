@@ -54,6 +54,8 @@ async def parse_document(doc_id: int):
             doc.status = "building_graph"
             await db.commit()
             try:
+                # 重解析时先清空该文档旧的图谱节点/关系，确保图谱反映最新解析内容
+                await graph_service.delete_by_document(doc.id)
                 graph_result = await extract_and_build(content.text, doc.id)
                 decide_document_status_after_graph(doc, graph_result)
             except Exception as graph_err:

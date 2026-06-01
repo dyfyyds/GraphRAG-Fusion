@@ -117,8 +117,10 @@ async def _write_graph(data: dict, document_id: int) -> tuple[int, int]:
                 continue
             await session.run(
                 "MATCH (a:Entity {name: $src}), (b:Entity {name: $tgt}) "
-                "MERGE (a)-[r:RELATES {rel_type: $rel_type}]->(b) SET r.status = 'pending'",
+                "MERGE (a)-[r:RELATES {rel_type: $rel_type}]->(b) "
+                "SET r.status = 'pending', r.document_id = $doc_id",
                 src=rel["source"], tgt=rel["target"], rel_type=rel.get("type", "RELATED"),
+                doc_id=document_id,
             )
 
         for syn in synonyms:

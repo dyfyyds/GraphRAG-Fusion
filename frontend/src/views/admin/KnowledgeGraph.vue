@@ -27,6 +27,11 @@
           </div>
         </div>
 
+        <!-- 大图谱折叠提示 -->
+        <div v-if="hiddenNodeCount > 0" class="graph-truncate-tip">
+          图谱较大，仅展示连接最密集的前 {{ MAX_RENDER_NODES }} 个实体（已折叠 {{ hiddenNodeCount }} 个）。可用搜索或类型筛选定位具体实体。
+        </div>
+
         <!-- D3 graph container -->
         <div ref="graphRef" class="graph-svg-container"></div>
         <div v-if="loading" class="graph-loading">加载图谱中...</div>
@@ -81,7 +86,7 @@
           <div class="panel-body">
             <ul class="entity-list">
               <li
-                v-for="entity in entities"
+                v-for="entity in displayedEntities"
                 :key="entity.id"
                 class="entity-item"
                 :class="{ active: selectedEntity?.id === entity.id }"
@@ -99,6 +104,9 @@
                   <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                 </button>
               </li>
+              <li v-if="entities.length > displayedEntities.length" class="list-more-tip">
+                仅显示前 {{ displayedEntities.length }} / {{ entityCount.toLocaleString() }} 个实体，请用搜索筛选
+              </li>
             </ul>
           </div>
         </div>
@@ -111,7 +119,7 @@
           </div>
           <div class="panel-body">
             <ul class="relation-list">
-              <li v-for="(rel, idx) in filteredRelations" :key="idx" class="relation-item">
+              <li v-for="(rel, idx) in displayedRelations" :key="idx" class="relation-item">
                 <span class="rel-name">{{ getEntityName(rel.source) }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="relation-label">{{ rel.relation_type }}</span>
@@ -120,6 +128,9 @@
                 <button class="btn-icon btn-delete-sm" @click.stop="deleteRelation(rel)" title="删除关系">
                   <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 19 19 17.59 13.41 12z"/></svg>
                 </button>
+              </li>
+              <li v-if="filteredRelations.length > displayedRelations.length" class="list-more-tip">
+                仅显示前 {{ displayedRelations.length }} / {{ filteredRelations.length.toLocaleString() }} 条关系
               </li>
               <li v-if="filteredRelations.length === 0" class="relation-empty">暂无关系数据</li>
             </ul>
@@ -228,6 +239,10 @@ const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
 const rightPanelCollapsed = ref(false)
+const hiddenNodeCount = ref(0)  // 大图谱保护：被折叠未渲染的节点数
+
+// 大图谱渲染上限：超过则只渲染连接度最高的前 N 个节点，避免浏览器卡死/崩溃
+const MAX_RENDER_NODES = 300
 
 let simulation = null
 let svg = null
@@ -268,6 +283,32 @@ const filteredRelations = computed(() => {
   return relations.value.filter(r => r.source === name || r.target === name || r.source_id === id || r.target_id === id)
 })
 
+// 右侧列表渲染上限：大数据量下避免一次渲染上千 DOM 节点导致页面卡死
+const MAX_LIST_ITEMS = 500
+
+// 预计算 名称→关系数 / 名称→实体，避免列表里逐项 O(n) 查找造成 O(n²) 卡顿
+const relationCountByName = computed(() => {
+  const m = Object.create(null)
+  for (const r of relations.value) {
+    m[r.source] = (m[r.source] || 0) + 1
+    m[r.target] = (m[r.target] || 0) + 1
+  }
+  return m
+})
+const entityById = computed(() => {
+  const m = Object.create(null)
+  for (const e of entities.value) m[e.id] = e
+  return m
+})
+const entityByName = computed(() => {
+  const m = Object.create(null)
+  for (const e of entities.value) m[e.name] = e
+  return m
+})
+
+const displayedEntities = computed(() => entities.value.slice(0, MAX_LIST_ITEMS))
+const displayedRelations = computed(() => filteredRelations.value.slice(0, MAX_LIST_ITEMS))
+
 function getTypeClass(type) {
   // Return CSS-safe class based on color index
   if (!type) return 'type-concept'
@@ -287,15 +328,14 @@ function getTypeName(type) {
 
 function getEntityName(idOrName) {
   // Relations now use entity names directly, so just return as-is if it's a name
-  const e = entities.value.find(e => e.id === idOrName || e.name === idOrName)
+  const e = entityById.value[idOrName] || entityByName.value[idOrName]
   return e ? e.name : idOrName
 }
 
 function getEntityRelationCount(entityId) {
-  const entity = entities.value.find(e => e.id === entityId)
+  const entity = entityById.value[entityId]
   if (!entity) return 0
-  const name = entity.name
-  return relations.value.filter(r => r.source === name || r.target === name || r.source_id === entityId || r.target_id === entityId).length
+  return relationCountByName.value[entity.name] || 0
 }
 
 async function loadGraph(query = '') {
@@ -357,6 +397,12 @@ function scheduleRender(delay = 0) {
 function renderGraph() {
   if (!graphRef.value) return
 
+  // 自动刷新时保留当前视图（缩放/平移），避免每次重绘都跳回原点
+  const prevTransform = svg ? d3.zoomTransform(svg.node()) : null
+  const hadView = !!prevTransform && (prevTransform.k !== 1 || prevTransform.x !== 0 || prevTransform.y !== 0)
+  // 记住当前选中实体，重绘后恢复高亮
+  const prevSelectedId = selectedEntity.value?.id || null
+
   cleanupGraph()
 
   const width = graphRef.value.clientWidth || 800
@@ -411,27 +457,46 @@ function renderGraph() {
     .on('zoom', (event) => g.attr('transform', event.transform))
   svg.call(zoomBehavior)
 
+  // 还原刷新前的视图变换
+  if (hadView) {
+    svg.call(zoomBehavior.transform, prevTransform)
+  }
+
   // ---- build graph data ----
   const connCount = {}
-  const nameToId = {}
   for (const e of entities.value) {
     connCount[e.name] = 0
-    nameToId[e.name] = e.id
   }
   for (const r of relations.value) {
     connCount[r.source] = (connCount[r.source] || 0) + 1
     connCount[r.target] = (connCount[r.target] || 0) + 1
   }
 
-  const nodes = entities.value.map(e => ({
+  // 大图谱保护：节点过多时只渲染连接度最高的前 N 个，避免浏览器卡死/崩溃
+  let renderEntities = entities.value
+  if (entities.value.length > MAX_RENDER_NODES) {
+    renderEntities = [...entities.value]
+      .sort((a, b) => (connCount[b.name] || 0) - (connCount[a.name] || 0))
+      .slice(0, MAX_RENDER_NODES)
+    hiddenNodeCount.value = entities.value.length - renderEntities.length
+  } else {
+    hiddenNodeCount.value = 0
+  }
+
+  const nodes = renderEntities.map(e => ({
     id: e.id, name: e.name, type: e.entity_type || 'Concept',
     radius: Math.min(12 + Math.sqrt(connCount[e.name] || 0) * 4, 36),
     connections: connCount[e.name] || 0,
   }))
 
-  // Deduplicate links by source+target+type
+  // O(1) 查找表，替代每条连线的 nodes.find() 遍历
+  const nodeByName = new Map(nodes.map(n => [n.name, n]))
+
+  // 仅保留两端节点都在渲染集合中的关系，
+  // 否则 d3.forceLink 会因引用缺失节点抛错 (missing: X) 导致整个图谱崩溃
   const linkMap = new Map()
   for (const r of relations.value) {
+    if (!nodeByName.has(r.source) || !nodeByName.has(r.target)) continue
     const key = `${r.source}::${r.target}::${r.relation_type || r.rel}`
     if (!linkMap.has(key)) linkMap.set(key, r)
   }
@@ -439,30 +504,36 @@ function renderGraph() {
     source: r.source, target: r.target, type: r.relation_type || r.rel || '关联',
   }))
 
+  // 大图谱降级：关闭连线文字标签等高开销绘制
+  const bigGraph = nodes.length > 150
+
   // ---- links (paths with arrowheads) ----
   const linkGroup = g.append('g').attr('class', 'links')
   const linkPaths = linkGroup.selectAll('line').data(links).join('line')
     .attr('stroke', d => {
-      const tgtNode = nodes.find(n => n.name === d.target)
+      const tgtNode = nodeByName.get(d.target)
       return TYPE_COLORS[tgtNode?.type] || '#909399'
     })
     .attr('stroke-width', 1.4)
     .attr('stroke-opacity', 0.42)
     .attr('marker-end', d => {
-      const tgtNode = nodes.find(n => n.name === d.target)
+      const tgtNode = nodeByName.get(d.target)
       return `url(#arrow-${tgtNode?.type || 'default'})`
     })
     .style('cursor', 'pointer')
 
+  // 大图谱时不渲染连线文字标签，避免大量 <text> 拖垮性能
   const linkLabelGroup = g.append('g').attr('class', 'link-labels')
-  const linkLabels = linkLabelGroup.selectAll('text').data(links).join('text')
-    .text(d => d.type)
-    .attr('font-size', 10)
-    .attr('fill', '#64748b')
-    .attr('text-anchor', 'middle')
-    .attr('dy', -4)
-    .style('pointer-events', 'none')
-    .style('opacity', 0.72)
+  const linkLabels = bigGraph
+    ? linkLabelGroup.selectAll('text')
+    : linkLabelGroup.selectAll('text').data(links).join('text')
+        .text(d => d.type)
+        .attr('font-size', 10)
+        .attr('fill', '#64748b')
+        .attr('text-anchor', 'middle')
+        .attr('dy', -4)
+        .style('pointer-events', 'none')
+        .style('opacity', 0.72)
 
   // ---- nodes ----
   const nodeGroup = g.append('g').attr('class', 'nodes')
@@ -544,8 +615,8 @@ function renderGraph() {
     .force('x', d3.forceX(width / 2).strength(0.015))
     .force('y', d3.forceY(height / 2).strength(0.015))
     .force('collision', d3.forceCollide().radius(d => d.radius + 14).strength(0.9))
-    .alphaDecay(0.015)
-    .velocityDecay(0.35)
+    .alphaDecay(bigGraph ? 0.045 : 0.015)
+    .velocityDecay(bigGraph ? 0.45 : 0.35)
 
   simulation.on('tick', () => {
     linkPaths
@@ -559,6 +630,43 @@ function renderGraph() {
 
   // ---- click on background resets highlight ----
   svg.on('click', () => resetHighlight())
+
+  // 首次渲染（无历史视图）时，待力学布局稳定后自动适应到所有节点
+  if (!hadView && nodes.length) {
+    setTimeout(() => fitGraphToNodes(nodes), 700)
+  }
+
+  // 重绘后恢复之前选中实体的高亮
+  if (prevSelectedId) {
+    const node = nodes.find(n => n.id === prevSelectedId)
+    if (node) {
+      highlightedNode = null
+      highlightNode(node)
+    }
+  }
+}
+
+// 根据节点包围盒自动缩放/平移，使整个图谱居中可见
+function fitGraphToNodes(nodes) {
+  if (!svg || !zoomBehavior || !graphRef.value || !nodes.length) return
+  const xs = nodes.map(n => n.x).filter(v => Number.isFinite(v))
+  const ys = nodes.map(n => n.y).filter(v => Number.isFinite(v))
+  if (!xs.length || !ys.length) return
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const width = graphRef.value.clientWidth || 800
+  const height = graphRef.value.clientHeight || 550
+  const pad = 80
+  const gw = Math.max(maxX - minX, 1)
+  const gh = Math.max(maxY - minY, 1)
+  const scale = Math.min(2, Math.max(0.2, Math.min((width - pad) / gw, (height - pad) / gh)))
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  const transform = d3.zoomIdentity
+    .translate(width / 2, height / 2)
+    .scale(scale)
+    .translate(-cx, -cy)
+  svg.interrupt().transition().duration(400).call(zoomBehavior.transform, transform)
 }
 
 // ---- Highlight / Dim ----
@@ -636,10 +744,10 @@ function resetHighlight() {
     .attr('opacity', 1)
   svg.select('g.links').selectAll('line')
     .transition().duration(duration)
-    .attr('stroke-opacity', 0.35).attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.42).attr('stroke-width', 1.4)
   svg.select('g.link-labels').selectAll('text')
     .transition().duration(duration)
-    .style('opacity', 0.7).attr('font-weight', 400)
+    .style('opacity', 0.72).attr('font-weight', 400)
 }
 
 function dragStarted(event) {
@@ -737,10 +845,14 @@ async function submitRelation() {
 
 watch(typeFilter, () => loadGraph())
 
-// 监听文档更新事件，自动刷新图谱
+// 监听文档更新事件，自动刷新图谱（防抖，避免解析多阶段状态变更引发频繁重绘）
+let refreshTimer = null
 const unsubscribe = on('documents:updated', () => {
-  console.log('[KnowledgeGraph] Received documents:updated event, refreshing graph...')
-  loadGraph()
+  if (refreshTimer) clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null
+    loadGraph()
+  }, 600)
 })
 
 onMounted(() => {
@@ -748,6 +860,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   unsubscribe()
+  if (refreshTimer) clearTimeout(refreshTimer)
   loadRequestId++
   cleanupGraph()
 })
@@ -846,6 +959,26 @@ onUnmounted(() => {
 
 .empty-desc {
   color: #7a8494;
+}
+
+/* 大图谱折叠提示 */
+.graph-truncate-tip {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 220px));
+  z-index: 11;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #92520a;
+  background: rgba(254, 243, 224, 0.96);
+  border: 1px solid #f6c97a;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+  text-align: center;
 }
 
 /* Stats overlay */
@@ -1193,6 +1326,18 @@ onUnmounted(() => {
   color: #7a8494;
   font-size: 13px;
   padding: 20px 0;
+}
+
+.list-more-tip {
+  text-align: center;
+  color: #92520a;
+  background: #fff7ed;
+  border: 1px dashed #f6c97a;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  list-style: none;
 }
 
 /* Modals */
