@@ -78,3 +78,8 @@ async def search_graph(q: str = "", entity_type: str | None = None):
 @router.get("/stats", response_model=GraphStatsOut)
 async def get_stats():
     return await graph_service.get_graph_stats()
+
+
+@router.post("/cleanup-low-quality")
+async def cleanup_low_quality_entities(limit: int = 5000, _admin: dict = Depends(require_admin)):
+    return await graph_service.cleanup_low_quality_entities(limit=limit)
