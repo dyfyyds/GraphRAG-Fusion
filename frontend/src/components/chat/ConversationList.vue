@@ -8,18 +8,20 @@
           </div>
           <span>智能问答</span>
         </div>
+      </div>
+      <div class="conversation-actions">
         <div class="new-chat-btn" @click="$emit('select', null)" title="新对话">
           <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
         </div>
+        <el-input
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="搜索对话..."
+          :prefix-icon="Search"
+          clearable
+          size="small"
+        />
       </div>
-      <el-input
-        v-model="searchQuery"
-        class="search-input"
-        placeholder="搜索对话..."
-        :prefix-icon="Search"
-        clearable
-        size="small"
-      />
     </div>
 
     <div class="conversation-list">
@@ -33,6 +35,7 @@
           @click="$emit('select', conv.id)"
         >
           <span class="title">{{ conv.title }}</span>
+          <span v-if="conv.thinking" class="thinking-dot" title="后台思考中"></span>
           <div class="delete-btn" @click.stop="$emit('delete', conv.id)" title="删除">
             <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
           </div>
@@ -62,7 +65,10 @@ import { ref, computed } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { useUserStore } from '../../store/user'
 
-const props = defineProps({ conversations: Array, currentId: Number })
+const props = defineProps({
+  conversations: { type: Array, default: () => [] },
+  currentId: [Number, String],
+})
 defineEmits(['select', 'delete', 'logout'])
 
 const userStore = useUserStore()
@@ -122,7 +128,7 @@ const groupedConversations = computed(() => {
 .logo-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   margin-bottom: 16px;
 }
 .logo {
@@ -150,6 +156,11 @@ const groupedConversations = computed(() => {
   font-weight: 700;
   color: var(--color-text);
 }
+.conversation-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .new-chat-btn {
   width: 36px;
   height: 36px;
@@ -173,7 +184,8 @@ const groupedConversations = computed(() => {
   fill: var(--color-text-muted);
 }
 .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 .conversation-list {
   flex: 1;
@@ -211,6 +223,26 @@ const groupedConversations = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+.thinking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.75);
+  margin: 0 8px;
+  flex-shrink: 0;
+  animation: pulse-thinking 1.2s ease-in-out infinite;
+}
+@keyframes pulse-thinking {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
 }
 .conv-item .delete-btn {
   width: 24px;

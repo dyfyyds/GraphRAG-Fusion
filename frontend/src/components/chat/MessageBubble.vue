@@ -3,9 +3,17 @@
     <div class="avatar">{{ avatarText }}</div>
     <div class="bubble-wrapper">
       <div class="bubble" v-html="renderedContent"></div>
-      <div v-if="message.sources?.items?.length" class="sources">
-        <div class="title">引用来源</div>
-        <SourceCard v-for="(s, i) in message.sources.items" :key="i" :source="s" />
+      <div v-if="sourceItems.length" class="sources">
+        <button type="button" class="sources-toggle" @click="sourcesExpanded = !sourcesExpanded">
+          <span>引用来源</span>
+          <strong>{{ sourceItems.length }}</strong>
+          <svg viewBox="0 0 24 24" :class="{ expanded: sourcesExpanded }" aria-hidden="true">
+            <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
+          </svg>
+        </button>
+        <div v-if="sourcesExpanded" class="sources-list">
+          <SourceCard v-for="(s, i) in sourceItems" :key="i" :source="s" />
+        </div>
       </div>
       <div v-if="message.role === 'assistant'" class="feedback-row">
         <button
@@ -53,8 +61,10 @@ const props = defineProps({ message: Object })
 const emit = defineEmits(['feedback'])
 const userStore = useUserStore()
 const feedback = ref(props.message.feedback || null)
+const sourcesExpanded = ref(false)
 
 const renderedContent = computed(() => md.render(props.message.content || ''))
+const sourceItems = computed(() => props.message.sources?.items || [])
 
 const avatarText = computed(() => {
   if (props.message.role === 'user') {
@@ -179,18 +189,49 @@ function setFeedback(val) {
   color: var(--color-text-muted);
 }
 .sources {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border);
+  margin-top: 8px;
+}
+.sources-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 7px;
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sources-toggle:hover {
+  border-color: rgba(14, 165, 233, 0.36);
+  color: var(--color-primary);
+  background: rgba(14, 165, 233, 0.12);
+}
+.sources-toggle strong {
+  color: var(--color-primary);
+  font-weight: 650;
+}
+.sources-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  transition: transform 0.2s;
+}
+.sources-toggle svg.expanded {
+  transform: rotate(180deg);
+}
+.sources-list {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-}
-.sources .title {
-  width: 100%;
-  font-size: 12px;
-  color: var(--color-text-subtle);
-  margin-bottom: 4px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(8, 12, 22, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.12);
 }
 .feedback-row {
   display: flex;

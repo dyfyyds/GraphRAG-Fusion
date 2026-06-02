@@ -1,8 +1,8 @@
 <template>
   <div class="chat-layout">
     <ConversationList
-      :conversations="conversations"
-      :current-id="currentConvId"
+      :conversations="conversationItems"
+      :current-id="currentKey"
       @select="selectConversation"
       @delete="deleteConversation"
       @logout="handleLogout"
@@ -50,14 +50,13 @@
         <!-- Streaming message -->
         <div v-if="streamingText" class="message assistant">
           <div class="avatar">AI</div>
-          <div class="bubble" v-html="renderMarkdown(streamingText)"></div>
+          <div class="stream-wrapper">
+            <div class="bubble" v-html="renderMarkdown(streamingText)"></div>
+            <div v-if="currentSources.length" class="stream-sources-note">
+              已检索到 {{ currentSources.length }} 条引用，回答完成后可展开查看
+            </div>
+          </div>
         </div>
-      </div>
-
-      <!-- Sources bar (shown during streaming) -->
-      <div v-if="currentSources.length" class="sources-bar">
-        <span class="sources-label">引用来源:</span>
-        <SourceCard v-for="(s, i) in currentSources" :key="i" :source="s" />
       </div>
 
       <ChatInput :loading="isStreaming" @send="sendMessage" />
@@ -66,12 +65,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ConversationList from '../../components/chat/ConversationList.vue'
 import MessageBubble from '../../components/chat/MessageBubble.vue'
-import SourceCard from '../../components/chat/SourceCard.vue'
 import ChatInput from '../../components/chat/ChatInput.vue'
 import { useUserStore } from '../../store/user'
 import { streamChat } from '../../utils/sse'
@@ -83,16 +81,74 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const conversations = ref([])
-const messages = ref([])
-const currentConvId = ref(null)
-const streamingText = ref('')
-const isStreaming = ref(false)
-const currentSources = ref([])
+const currentKey = ref(null)
+const chatSessions = reactive({})
 const messagesRef = ref(null)
 
+function toKey(id) {
+  if (id === null || id === undefined) return null
+  return String(id)
+}
+
+function isPendingKey(key) {
+  return typeof key === 'string' && key.startsWith('pending:')
+}
+
+function isPersistedKey(key) {
+  return key !== null && key !== undefined && !isPendingKey(key)
+}
+
+function ensureSession(key) {
+  if (!key) return null
+  if (!chatSessions[key]) {
+    chatSessions[key] = {
+      messages: [],
+      streamingText: '',
+      sources: [],
+      isStreaming: false,
+      title: '新对话',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+  }
+  return chatSessions[key]
+}
+
+function titleFromQuestion(question) {
+  return question.length > 28 ? `${question.slice(0, 28)}...` : question
+}
+
+const activeSession = computed(() => currentKey.value ? chatSessions[currentKey.value] : null)
+const messages = computed(() => activeSession.value?.messages || [])
+const streamingText = computed(() => activeSession.value?.streamingText || '')
+const isStreaming = computed(() => Boolean(activeSession.value?.isStreaming))
+const currentSources = computed(() => activeSession.value?.sources || [])
+
+const conversationItems = computed(() => {
+  const persisted = conversations.value.map(conv => {
+    const key = toKey(conv.id)
+    return {
+      ...conv,
+      id: key,
+      thinking: Boolean(chatSessions[key]?.isStreaming),
+    }
+  })
+  const pending = Object.entries(chatSessions)
+    .filter(([key]) => isPendingKey(key))
+    .map(([key, session]) => ({
+      id: key,
+      title: session.title || '新对话',
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+      thinking: session.isStreaming,
+    }))
+  return [...pending, ...persisted]
+})
+
 const currentTitle = computed(() => {
-  if (!currentConvId.value) return '新对话'
-  const conv = conversations.value.find(c => c.id === currentConvId.value)
+  if (!currentKey.value) return '新对话'
+  if (activeSession.value?.title) return activeSession.value.title
+  const conv = conversationItems.value.find(c => c.id === currentKey.value)
   return conv?.title || '对话'
 })
 
@@ -113,40 +169,61 @@ async function loadConversations() {
 }
 
 async function selectConversation(id) {
+  const key = toKey(id)
   if (id === null) {
-    currentConvId.value = null
-    messages.value = []
+    currentKey.value = null
     return
   }
-  currentConvId.value = id
+  currentKey.value = key
+  const existing = ensureSession(key)
+  existing.title = conversationItems.value.find(c => c.id === key)?.title || existing.title
+  if (existing?.isStreaming || isPendingKey(key)) {
+    scrollToBottom()
+    return
+  }
   try {
-    messages.value = await request.get(`/conversations/${id}/messages`)
+    existing.messages = await request.get(`/conversations/${Number(key)}/messages`)
     scrollToBottom()
   } catch {}
 }
 
 async function deleteConversation(id) {
+  const key = toKey(id)
   try {
-    await request.delete(`/conversations/${id}`)
-    conversations.value = conversations.value.filter(c => c.id !== id)
-    if (currentConvId.value === id) {
-      currentConvId.value = null
-      messages.value = []
+    if (isPendingKey(key)) {
+      delete chatSessions[key]
+    } else {
+      await request.delete(`/conversations/${Number(key)}`)
+      conversations.value = conversations.value.filter(c => toKey(c.id) !== key)
+      delete chatSessions[key]
+    }
+    if (currentKey.value === key) {
+      currentKey.value = null
     }
   } catch {}
 }
 
 function clearCurrentChat() {
-  currentConvId.value = null
-  messages.value = []
+  currentKey.value = null
 }
 
 async function sendMessage(question) {
-  isStreaming.value = true
-  streamingText.value = ''
-  currentSources.value = []
+  let key = currentKey.value
+  if (!key) {
+    key = `pending:${Date.now()}`
+    currentKey.value = key
+  }
 
-  messages.value.push({
+  const session = ensureSession(key)
+  if (!session || session.isStreaming) return
+
+  session.isStreaming = true
+  session.streamingText = ''
+  session.sources = []
+  session.title = session.messages.length ? session.title : titleFromQuestion(question)
+  session.updated_at = new Date().toISOString()
+
+  session.messages.push({
     id: Date.now(),
     role: 'user',
     content: question,
@@ -155,32 +232,39 @@ async function sendMessage(question) {
   scrollToBottom()
 
   await streamChat(
-    { question, conversation_id: currentConvId.value },
+    { question, conversation_id: isPersistedKey(key) ? Number(key) : null },
     {
       onChunk(chunk) {
-        streamingText.value += chunk
-        scrollToBottom()
+        session.streamingText += chunk
+        if (currentKey.value === key) scrollToBottom()
       },
       onSources(sources) {
-        currentSources.value = sources
+        session.sources = sources
       },
       onDone(data) {
-        messages.value.push({
+        session.messages.push({
           id: Date.now() + 1,
           role: 'assistant',
-          content: streamingText.value,
-          sources: { items: currentSources.value },
+          content: session.streamingText,
+          sources: { items: session.sources },
           created_at: new Date().toISOString(),
         })
-        streamingText.value = ''
-        isStreaming.value = false
-        currentConvId.value = data.conversation_id
+        session.streamingText = ''
+        session.isStreaming = false
+        session.updated_at = new Date().toISOString()
+        const persistedKey = toKey(data.conversation_id)
+        if (persistedKey && persistedKey !== key) {
+          chatSessions[persistedKey] = session
+          delete chatSessions[key]
+          if (currentKey.value === key) currentKey.value = persistedKey
+        }
         loadConversations()
+        if (currentKey.value === key || currentKey.value === persistedKey) scrollToBottom()
       },
       onError(err) {
-        ElMessage.error(err || '问答失败，请稍后重试')
-        streamingText.value = ''
-        isStreaming.value = false
+        session.streamingText = ''
+        session.isStreaming = false
+        if (currentKey.value === key) ElMessage.error(err || '问答失败，请稍后重试')
       },
     }
   )
@@ -310,22 +394,6 @@ onMounted(loadConversations)
   font-size: 14px;
   color: var(--color-text-muted);
 }
-.sources-bar {
-  display: flex;
-  gap: 8px;
-  padding: 8px 24px;
-  overflow-x: auto;
-  border-top: 1px solid var(--color-border);
-  background: rgba(8, 12, 22, 0.6);
-  backdrop-filter: blur(8px);
-  align-items: center;
-}
-.sources-label {
-  font-size: 12px;
-  color: var(--color-text-subtle);
-  flex-shrink: 0;
-}
-
 /* Message styling (mirrors MessageBubble but for streaming/welcome) */
 .message {
   display: flex;
@@ -360,6 +428,20 @@ onMounted(loadConversations)
   border: 1px solid var(--color-border);
   border-top-left-radius: 4px;
   backdrop-filter: blur(8px);
+}
+.stream-wrapper {
+  max-width: min(680px, calc(100vw - 420px));
+  min-width: 0;
+}
+.stream-sources-note {
+  width: fit-content;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 .typing-indicator {
   display: flex;
