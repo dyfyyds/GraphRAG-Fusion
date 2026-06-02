@@ -2,7 +2,7 @@
   <span class="source-item" @click="$emit('click', source)">
     {{ source.document_name }}
     <span v-if="source.page_number"> - {{ source.page_number }}</span>
-    <span class="score">相似度: {{ (source.score * 100).toFixed(0) / 100 }}</span>
+    <span class="score">检索分: {{ (source.display_score ?? source.score ?? 0).toFixed(2) }}</span>
   </span>
 </template>
 

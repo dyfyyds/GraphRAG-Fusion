@@ -152,10 +152,9 @@ const props = defineProps({
   entities: { type: Array, default: () => [] },
   relations: { type: Array, default: () => [] },
   selectedEntity: { type: Object, default: null },
-  maxNodes: { type: Number, default: 300 },
 })
 
-const emit = defineEmits(['select', 'hidden-count'])
+const emit = defineEmits(['select'])
 
 const mountRef = ref(null)
 const viewMode = ref('cosmos') // 'cosmos' (spheres) or 'topology' (neural net)
@@ -366,10 +365,7 @@ function buildNodes(entities, relations) {
   const sorted = [...entities]
     .sort((a, b) => (relationCount[b.name] || 0) - (relationCount[a.name] || 0))
 
-  const hidden = Math.max(0, sorted.length - props.maxNodes)
-  emit('hidden-count', hidden)
-
-  const nodes = sorted.slice(0, props.maxNodes).map((entity, index) => {
+  const nodes = sorted.map((entity, index) => {
     const category = galaxyFor(entity)
     const galaxy = GALAXIES[category]
     const seed = hash(`${entity.id || ''}:${entity.name || ''}:${index}`)
@@ -452,7 +448,6 @@ function syncRightPanelData(node) {
   const description = raw.description || raw.desc || raw.summary || raw.content || '该实体暂无描述。'
   const relationItems = props.relations
     .filter(rel => rel.source === name || rel.target === name || rel.source_id === node.id || rel.target_id === node.id)
-    .slice(0, 8)
     .map(rel => {
       const relationType = rel.relation_type || rel.rel || rel.type || '关联'
       if (rel.source === name || rel.source_id === node.id) return `${name} → ${relationType} → ${rel.target}`

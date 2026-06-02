@@ -32,19 +32,12 @@
           </div>
         </div>
 
-        <!-- 大图谱折叠提示 -->
-        <div v-if="hiddenNodeCount > 0" class="graph-truncate-tip">
-          图谱较大，仅展示连接最密集的前 {{ MAX_RENDER_NODES }} 个实体（已折叠 {{ hiddenNodeCount }} 个）。可用搜索或类型筛选定位具体实体。
-        </div>
-
         <SemanticCosmos
           ref="semanticCosmosRef"
           :entities="entities"
           :relations="relations"
           :selected-entity="selectedEntity"
-          :max-nodes="MAX_RENDER_NODES"
           @select="selectEntity"
-          @hidden-count="hiddenNodeCount = $event"
         />
         <div class="graph-controls">
           <div class="graph-control" @click="zoomIn" title="放大">
@@ -84,7 +77,7 @@
           <div class="panel-body">
             <ul class="entity-list">
               <li
-                v-for="entity in displayedEntities"
+                v-for="entity in entities"
                 :key="entity.id"
                 class="entity-item"
                 :class="{ active: selectedEntity?.id === entity.id }"
@@ -102,9 +95,6 @@
                   <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                 </button>
               </li>
-              <li v-if="entities.length > displayedEntities.length" class="list-more-tip">
-                仅显示前 {{ displayedEntities.length }} / {{ entityCount.toLocaleString() }} 个实体，请用搜索筛选
-              </li>
             </ul>
           </div>
         </div>
@@ -117,7 +107,7 @@
           </div>
           <div class="panel-body">
             <ul class="relation-list">
-              <li v-for="(rel, idx) in displayedRelations" :key="idx" class="relation-item">
+              <li v-for="(rel, idx) in filteredRelations" :key="idx" class="relation-item">
                 <span class="rel-name">{{ getEntityName(rel.source) }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="relation-label">{{ rel.relation_type }}</span>
@@ -126,9 +116,6 @@
                 <button class="btn-icon btn-delete-sm" @click.stop="deleteRelation(rel)" title="删除关系">
                   <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                 </button>
-              </li>
-              <li v-if="filteredRelations.length > displayedRelations.length" class="list-more-tip">
-                仅显示前 {{ displayedRelations.length }} / {{ filteredRelations.length.toLocaleString() }} 条关系
               </li>
               <li v-if="filteredRelations.length === 0" class="relation-empty">暂无关系数据</li>
             </ul>
@@ -241,8 +228,6 @@ const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
 const rightPanelCollapsed = ref(true)
-const hiddenNodeCount = ref(0)
-const MAX_RENDER_NODES = 140
 
 let simulation = null
 let svg = null
@@ -287,9 +272,6 @@ const filteredRelations = computed(() => {
   return relations.value.filter(r => r.source === name || r.target === name || r.source_id === id || r.target_id === id)
 })
 
-// 右侧列表渲染上限：大数据量下避免一次渲染上千 DOM 节点导致页面卡死
-const MAX_LIST_ITEMS = 500
-
 // 预计算 名称→关系数 / 名称→实体，避免列表里逐项 O(n) 查找造成 O(n²) 卡顿
 const relationCountByName = computed(() => {
   const m = Object.create(null)
@@ -309,9 +291,6 @@ const entityByName = computed(() => {
   for (const e of entities.value) m[e.name] = e
   return m
 })
-
-const displayedEntities = computed(() => entities.value.slice(0, MAX_LIST_ITEMS))
-const displayedRelations = computed(() => filteredRelations.value.slice(0, MAX_LIST_ITEMS))
 
 function getTypeClass(type) {
   // Return CSS-safe class based on color index
@@ -347,8 +326,8 @@ async function loadGraph(query = '') {
   loading.value = true
   try {
     const [entRes, relRes] = await Promise.all([
-      request.get('/graph/entities', { params: { q: query || undefined, limit: 1000, entity_type: typeFilter.value || undefined } }),
-      request.get('/graph/relations', { params: { limit: 1000 } }),
+      request.get('/graph/entities', { params: { q: query || undefined, limit: 0, entity_type: typeFilter.value || undefined } }),
+      request.get('/graph/relations', { params: { limit: 0 } }),
     ])
     if (requestId !== loadRequestId) return
     entities.value = Array.isArray(entRes) ? entRes : (entRes.data || [])
@@ -490,18 +469,7 @@ function renderGraph() {
     connCount[r.target] = (connCount[r.target] || 0) + 1
   }
 
-  // 大图谱保护：节点过多时只渲染连接度最高的前 N 个，避免浏览器卡死/崩溃
-  let renderEntities = entities.value
-  if (entities.value.length > MAX_RENDER_NODES) {
-    renderEntities = [...entities.value]
-      .sort((a, b) => (connCount[b.name] || 0) - (connCount[a.name] || 0))
-      .slice(0, MAX_RENDER_NODES)
-    hiddenNodeCount.value = entities.value.length - renderEntities.length
-  } else {
-    hiddenNodeCount.value = 0
-  }
-
-  const nodes = renderEntities.map(e => ({
+  const nodes = entities.value.map(e => ({
     id: e.id, name: e.name, type: e.entity_type || 'Concept',
     radius: Math.min(12 + Math.sqrt(connCount[e.name] || 0) * 4, 36),
     connections: connCount[e.name] || 0,
@@ -561,18 +529,15 @@ function renderGraph() {
     })
     .style('cursor', 'pointer')
 
-  // 大图谱时不渲染连线文字标签，避免大量 <text> 拖垮性能
   const linkLabelGroup = g.append('g').attr('class', 'link-labels')
-  const linkLabels = bigGraph
-    ? linkLabelGroup.selectAll('text')
-    : linkLabelGroup.selectAll('text').data(links).join('text')
-        .text(d => d.type)
-        .attr('font-size', 10)
-        .attr('fill', '#dbeafe')
-        .attr('text-anchor', 'middle')
-        .attr('dy', -4)
-        .style('pointer-events', 'none')
-        .style('opacity', 0.76)
+  const linkLabels = linkLabelGroup.selectAll('text').data(links).join('text')
+    .text(d => d.type)
+    .attr('font-size', 10)
+    .attr('fill', '#dbeafe')
+    .attr('text-anchor', 'middle')
+    .attr('dy', -4)
+    .style('pointer-events', 'none')
+    .style('opacity', 0.76)
 
   // ---- nodes ----
   const nodeGroup = g.append('g').attr('class', 'nodes')
@@ -648,7 +613,7 @@ function renderGraph() {
 
   nodeG.append('text')
     .attr('class', 'node-name')
-    .text(d => d.name.length > 8 ? d.name.slice(0, 8) + '..' : d.name)
+    .text(d => d.name)
     .attr('text-anchor', 'middle')
     .attr('dy', d => d.radius + 14)
     .attr('font-size', 11)
@@ -1161,26 +1126,6 @@ onUnmounted(() => {
 
 .empty-desc {
   color: #94a3b8;
-}
-
-/* 大图谱折叠提示 */
-.graph-truncate-tip {
-  position: absolute;
-  top: 82px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(560px, calc(100% - 220px));
-  z-index: 30;
-  padding: 8px 14px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(226, 246, 255, 0.82);
-  background: rgba(3, 7, 18, 0.62);
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(12px);
-  text-align: center;
 }
 
 /* Stats overlay */

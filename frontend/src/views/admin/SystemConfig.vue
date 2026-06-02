@@ -388,7 +388,7 @@
           </div>
           <div class="form-group">
             <label>最小分块大小（字符数）</label>
-            <el-input-number v-model="minChunkSize" :min="10" :max="1000" :step="10" style="width: 100%" />
+            <el-input-number v-model="minChunkSize" :min="10" :max="4096" :step="10" style="width: 100%" />
           </div>
         </div>
       </div>
