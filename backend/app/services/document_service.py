@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 from sqlalchemy import select, func
@@ -14,7 +15,12 @@ from app.db.chroma import get_or_create_collection
 from app.db.mysql import async_session
 from app.utils.pagination import PageParams, PageResult
 
+logger = logging.getLogger("app")
+
 UPLOAD_DIR = "uploads"
+
+# 内存级处理锁：防止同一文档被并发解析导致死锁
+_processing_locks: dict[int, asyncio.Lock] = {}
 
 
 async def upload_document(db: AsyncSession, file_name: str, file_path: str, file_type: str, file_size: int, user_id: int) -> Document:
@@ -39,32 +45,42 @@ def decide_document_status_after_graph(doc: Document, graph_result: dict):
 
 async def parse_document(doc_id: int):
     """后台任务: 用独立会话避免 FastAPI 依赖注入的 session 已关闭"""
-    async with async_session() as db:
-        doc = await get_document(db, doc_id)
-        doc.status = "parsing"
-        await db.commit()
+    # 防止同一文档被并发解析（造成死锁）
+    lock = _processing_locks.setdefault(doc_id, asyncio.Lock())
+    if lock.locked():
+        logger.warning(f"文档 {doc_id} 正在解析中，跳过重复请求")
+        return
+    async with lock:
         try:
-            content = await process_document(doc.file_path, doc.id)
-            chunk_count = (await db.execute(
-                select(func.count()).select_from(Chunk).where(Chunk.document_id == doc_id)
-            )).scalar() or 0
-            doc.chunk_count = chunk_count
+            del _processing_locks[doc_id]
+        except KeyError:
+            pass
 
-            # 构建知识图谱
-            doc.status = "building_graph"
+        async with async_session() as db:
+            doc = await get_document(db, doc_id)
+            doc.status = "parsing"
             await db.commit()
             try:
-                # 重解析时先清空该文档旧的图谱节点/关系，确保图谱反映最新解析内容
-                await graph_service.delete_by_document(doc.id)
-                graph_result = await extract_and_build(content.text, doc.id)
-                decide_document_status_after_graph(doc, graph_result)
-            except Exception as graph_err:
-                doc.status = "graph_failed"
-                doc.error_message = f"文档解析完成，但知识图谱构建异常：{str(graph_err)[:400]}"
-        except Exception as e:
-            doc.status = "failed"
-            doc.error_message = str(e)[:500]
-        await db.commit()
+                content = await process_document(doc.file_path, doc.id)
+                chunk_count = (await db.execute(
+                    select(func.count()).select_from(Chunk).where(Chunk.document_id == doc_id)
+                )).scalar() or 0
+                doc.chunk_count = chunk_count
+
+                # 构建知识图谱
+                doc.status = "building_graph"
+                await db.commit()
+                try:
+                    await graph_service.delete_by_document(doc.id)
+                    graph_result = await extract_and_build(content.text, doc.id)
+                    decide_document_status_after_graph(doc, graph_result)
+                except Exception as graph_err:
+                    doc.status = "graph_failed"
+                    doc.error_message = f"文档解析完成，但知识图谱构建异常：{str(graph_err)[:400]}"
+            except Exception as e:
+                doc.status = "failed"
+                doc.error_message = str(e)[:500]
+            await db.commit()
 
 
 async def get_document(db: AsyncSession, doc_id: int) -> Document:
