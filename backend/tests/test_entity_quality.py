@@ -1,5 +1,10 @@
 from app.core.entity_quality import clean_entity_record, is_high_quality_entity_name, normalize_entity_name
-from app.core.graph_build_service import _fallback_extract, _rule_extract_legal_context
+from app.core.graph_build_service import (
+    _fallback_extract,
+    _rule_extract_domain_context,
+    _rule_extract_legal_context,
+    _split_text_for_extraction,
+)
 
 
 def test_rejects_predicate_fragment_entities():
@@ -21,6 +26,15 @@ def test_keeps_legal_documents_and_codes():
     assert is_high_quality_entity_name("财库〔2020〕46号")
     assert is_high_quality_entity_name("财政部令第87号")
     assert is_high_quality_entity_name("第二十二条")
+
+
+def test_accepts_fine_grained_policy_entities():
+    assert is_high_quality_entity_name("行政事业性收费项目")
+    assert is_high_quality_entity_name("政府会计准则制度新旧衔接")
+    assert is_high_quality_entity_name("工会经费")
+    assert is_high_quality_entity_name("评标标准")
+    assert is_high_quality_entity_name("社保材料")
+    assert is_high_quality_entity_name("授权文件")
 
 
 def test_fallback_extract_filters_low_quality_fragments():
@@ -67,6 +81,43 @@ def test_rule_extracts_procurement_material_relations():
     assert "业绩情况" in names
     assert ("第二十三条", "要求提供", "资质证明文件") in relations
     assert ("采购人", "要求提供", "业绩情况") in relations
+
+
+def test_domain_rule_extracts_fine_grained_entities_and_relations():
+    extracted = _rule_extract_domain_context(
+        "财会〔2018〕34号 财政部关于进一步做好政府会计准则制度新旧衔接和加强行政事业单位资产核算的通知。"
+        "但下列行政事业性收费项目应当按照非税收入和票据管理规定执行。"
+        "第十七条 供应商应提供资质证明、业绩证明、设备证明、人员证明、授权文件、劳动合同和社保材料。"
+    )
+    names = {item["name"] for item in extracted["entities"]}
+    relations = {
+        (item["source"], item["type"], item["target"])
+        for item in extracted["relations"]
+    }
+
+    assert "财会〔2018〕34号" in names
+    assert "第十七条" in names
+    assert "政府会计准则制度新旧衔接" in names
+    assert "行政事业性收费项目" in names
+    assert "资质证明" in names
+    assert "业绩证明" in names
+    assert "设备证明" in names
+    assert "人员证明" in names
+    assert "社保材料" in names
+    assert any(source == "第十七条" and target == "社保材料" for source, _, target in relations)
+
+
+def test_extraction_split_uses_structural_boundaries():
+    text = "\n".join(
+        [
+            "第一条 供应商应当提供资质证明文件。",
+            "第二条 采购人可以要求供应商提供业绩情况。",
+            "第三条 分公司不具有法人资格。",
+        ]
+    )
+    sections = _split_text_for_extraction(text, 40)
+    assert len(sections) >= 2
+    assert all(len(section) <= 40 for section in sections)
 
 
 # ── 新增测试：扩展的领域关键字 ──────────────────────────

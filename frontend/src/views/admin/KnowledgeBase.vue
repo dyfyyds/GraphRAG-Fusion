@@ -83,7 +83,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in paginatedData" :key="row.id">
+          <tr v-for="row in filteredDocuments" :key="row.id">
             <td>
               <input type="checkbox" v-model="selectedIds" :value="row.id" />
             </td>
@@ -119,26 +119,12 @@
               </div>
             </td>
           </tr>
-          <tr v-if="paginatedData.length === 0">
+          <tr v-if="filteredDocuments.length === 0">
             <td colspan="8" class="empty-cell">暂无数据</td>
           </tr>
         </tbody>
       </table>
-      <!-- Pagination -->
-      <div class="pagination">
-        <div class="info">共 {{ filteredDocuments.length }} 条，每页 {{ pageSize }} 条</div>
-        <div class="pages">
-          <div class="page-btn" :class="{ disabled: currentPage <= 1 }" @click="currentPage > 1 && currentPage--">&lt;</div>
-          <div
-            v-for="p in displayedPages"
-            :key="p"
-            class="page-btn"
-            :class="{ active: p === currentPage, disabled: p === '...' }"
-            @click="p !== '...' && (currentPage = p)"
-          >{{ p }}</div>
-          <div class="page-btn" :class="{ disabled: currentPage >= totalPages }" @click="currentPage < totalPages && currentPage++">&gt;</div>
-        </div>
-      </div>
+      <div class="list-summary">共 {{ filteredDocuments.length }} 条，滚动查看全部文档</div>
     </div>
 
     <!-- Upload Modal -->
@@ -220,10 +206,6 @@ const searchKeyword = ref('')
 const filterType = ref('')
 const filterStatus = ref('')
 
-// Pagination
-const currentPage = ref(1)
-const pageSize = 10
-
 // Selection
 const selectAll = ref(false)
 const selectedIds = ref([])
@@ -251,28 +233,6 @@ const filteredDocuments = computed(() => {
     const matchStatus = !filterStatus.value || d.status === filterStatus.value
     return matchKeyword && matchType && matchStatus
   })
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredDocuments.value.length / pageSize)))
-
-const paginatedData = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return filteredDocuments.value.slice(start, start + pageSize)
-})
-
-const displayedPages = computed(() => {
-  const total = totalPages.value
-  const current = currentPage.value
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
-  const pages = []
-  pages.push(1)
-  if (current > 3) pages.push('...')
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
-    pages.push(i)
-  }
-  if (current < total - 2) pages.push('...')
-  if (total > 1) pages.push(total)
-  return pages
 })
 
 // ---- Helpers ----
@@ -319,7 +279,7 @@ function getExtension(filename) {
 
 function toggleSelectAll() {
   if (selectAll.value) {
-    selectedIds.value = paginatedData.value.map(d => d.id)
+    selectedIds.value = filteredDocuments.value.map(d => d.id)
   } else {
     selectedIds.value = []
   }
@@ -421,7 +381,7 @@ async function startUpload() {
 // ---- API calls ----
 async function loadDocuments() {
   try {
-    const res = await request.get('/documents')
+    const res = await request.get('/documents?all=true')
     applyDocuments(Array.isArray(res) ? res : (res.items || []))
 
     const graphFailed = documents.value.find(d => d.status === 'graph_failed' && d.error_message)
@@ -440,6 +400,12 @@ function applyDocuments(nextDocuments) {
     emit('documents:updated', { documents: documents.value })
   }
 }
+
+watch(filteredDocuments, (rows) => {
+  const visibleIds = new Set(rows.map(row => row.id))
+  selectedIds.value = selectedIds.value.filter(id => visibleIds.has(id))
+  selectAll.value = rows.length > 0 && selectedIds.value.length === rows.length
+})
 
 async function viewChunks(row) {
   try {
@@ -647,6 +613,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-xs);
+  max-height: min(640px, calc(100vh - 270px));
   overflow: auto;
   backdrop-filter: blur(8px);
 }
@@ -656,6 +623,9 @@ table {
 }
 thead {
   background: rgba(20, 28, 50, 0.5);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 th {
   padding: 14px 16px;
@@ -798,51 +768,15 @@ tr:hover {
   padding: 40px;
 }
 
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-}
-.pagination .info {
+.list-summary {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-solid) 88%, transparent);
   font-size: 13px;
   color: var(--color-text-subtle);
-}
-.pagination .pages {
-  display: flex;
-  gap: 4px;
-}
-.page-btn {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--color-text-muted);
-  background: var(--color-surface-solid);
-  transition: all 0.2s;
-  user-select: none;
-}
-.page-btn:hover:not(.disabled) {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-  box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
-}
-.page-btn.active {
-  background: var(--color-primary);
-  color: #fff;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
-}
-.page-btn.disabled {
-  color: var(--color-text-subtle);
-  cursor: not-allowed;
-  opacity: 0.5;
+  backdrop-filter: blur(10px);
 }
 
 /* Modal */
@@ -940,6 +874,9 @@ tr:hover {
 /* Upload List */
 .upload-list {
   margin-top: 16px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .upload-item {
   display: flex;

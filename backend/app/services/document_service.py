@@ -113,6 +113,12 @@ async def list_documents(
         count_query = count_query.where(Document.status == status)
 
     total = (await db.execute(count_query)).scalar() or 0
+    if page_size <= 0:
+        result = await db.execute(query.order_by(Document.created_at.desc()))
+        items = list(result.scalars().all())
+        response_page_size = total or len(items) or 1
+        return PageResult.create(items=items, total=total, page=1, page_size=response_page_size)
+
     params = PageParams(page=page, page_size=page_size)
     result = await db.execute(query.order_by(Document.created_at.desc()).offset(params.offset).limit(params.page_size))
     items = list(result.scalars().all())
