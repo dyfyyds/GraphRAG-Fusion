@@ -290,60 +290,62 @@ onMounted(loadConversations)
 .chat-layout {
   display: flex;
   height: 100%;
-  background: var(--color-bg);
+  background: #000;
 }
 .chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-nebula);
+  background: #030712;
   min-width: 0;
   position: relative;
 }
 .chat-header {
-  height: 60px;
-  border-bottom: 1px solid var(--color-border);
+  height: 62px;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  background: rgba(8, 12, 22, 0.6);
-  backdrop-filter: blur(12px);
+  padding: 0 26px;
+  background: rgba(3, 7, 18, 0.92);
+  backdrop-filter: blur(18px);
 }
 .chat-header .title {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  color: #eaf2ff;
 }
 .chat-header .actions {
   display: flex;
   gap: 8px;
 }
 .chat-header .action-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s;
+  border: 1px solid transparent;
 }
 .chat-header .action-btn:hover {
-  background: var(--color-danger-soft);
+  background: rgba(248, 113, 113, 0.15);
+  border-color: rgba(248, 113, 113, 0.3);
 }
 .chat-header .action-btn svg {
   width: 18px;
   height: 18px;
-  fill: var(--color-text-muted);
+  fill: #94a3b8;
 }
 .chat-header .action-btn:hover svg {
-  fill: var(--color-danger);
+  fill: #f87171;
 }
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 28px;
+  padding: 30px;
   background: transparent;
 }
 .welcome-state {
@@ -352,109 +354,113 @@ onMounted(loadConversations)
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--color-text-subtle);
+  color: #94a3b8;
   text-align: center;
 }
 .welcome-state .welcome-icon {
-  width: 64px;
-  height: 64px;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
-  border-radius: 14px;
+  width: 68px;
+  height: 68px;
+  background: linear-gradient(135deg, #7dd3fc, #a78bfa);
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
-  box-shadow: 0 0 24px rgba(14, 165, 233, 0.3);
+  margin-bottom: 22px;
+  box-shadow: 0 0 28px rgba(125, 211, 252, 0.4);
   position: relative;
 }
 .welcome-state .welcome-icon::after {
   content: '';
   position: absolute;
   inset: -4px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(139, 92, 246, 0.2));
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.3), rgba(167, 139, 250, 0.3));
   z-index: -1;
-  filter: blur(10px);
+  filter: blur(12px);
 }
 .welcome-state .welcome-icon svg {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   fill: #fff;
 }
 .welcome-state h2 {
-  font-size: 20px;
-  color: var(--color-text);
-  margin-bottom: 8px;
-  background: linear-gradient(90deg, #fff, var(--color-cyan));
+  font-size: 22px;
+  color: #eaf2ff;
+  margin-bottom: 10px;
+  font-weight: 800;
+  background: linear-gradient(90deg, #ffffff, #7dd3fc);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 .welcome-state p {
   font-size: 14px;
-  color: var(--color-text-muted);
+  color: #94a3b8;
+  max-width: 420px;
 }
 /* Message styling (mirrors MessageBubble but for streaming/welcome) */
 .message {
   display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
-  max-width: 800px;
+  gap: 14px;
+  margin-bottom: 26px;
+  max-width: 820px;
 }
 .message.assistant {
   /* default left-aligned */
 }
 .message .avatar {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   font-size: 14px;
-  font-weight: 600;
-  background: linear-gradient(135deg, var(--color-success), var(--color-teal));
+  font-weight: 700;
+  background: linear-gradient(135deg, #34d399, #2dd4bf);
   color: #fff;
-  box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.4);
 }
 .message .bubble {
-  padding: 14px 18px;
-  border-radius: 8px;
+  padding: 16px 20px;
+  border-radius: 10px;
   font-size: 14px;
-  line-height: 1.7;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
+  line-height: 1.75;
+  background: rgba(8, 15, 30, 0.86);
+  color: #eaf2ff;
+  border: 1px solid rgba(125, 211, 252, 0.2);
   border-top-left-radius: 4px;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 .stream-wrapper {
-  max-width: min(680px, calc(100vw - 420px));
+  max-width: min(700px, calc(100vw - 420px));
   min-width: 0;
 }
 .stream-sources-note {
   width: fit-content;
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  border: 1px solid rgba(14, 165, 233, 0.18);
-  background: rgba(14, 165, 233, 0.08);
-  color: var(--color-text-muted);
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  background: rgba(125, 211, 252, 0.08);
+  color: #93c5fd;
   font-size: 12px;
+  font-weight: 600;
 }
 .typing-indicator {
   display: flex;
-  gap: 4px;
-  padding: 8px 0;
+  gap: 5px;
+  padding: 10px 0;
 }
 .typing-indicator .dot {
-  width: 8px;
-  height: 8px;
-  background: var(--color-primary);
+  width: 9px;
+  height: 9px;
+  background: #7dd3fc;
   border-radius: 50%;
   animation: typing 1.4s infinite;
-  box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
+  box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
 }
 .typing-indicator .dot:nth-child(2) {
   animation-delay: 0.2s;
@@ -470,14 +476,14 @@ onMounted(loadConversations)
     opacity: 0.4;
   }
   30% {
-    transform: translateY(-8px);
+    transform: translateY(-10px);
     opacity: 1;
   }
 }
 
 @media (max-width: 900px) {
   .chat-messages {
-    padding: 18px;
+    padding: 20px;
   }
 }
 </style>

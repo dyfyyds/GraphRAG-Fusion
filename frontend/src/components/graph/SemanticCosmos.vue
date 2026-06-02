@@ -26,6 +26,9 @@
         <span class="time-label">SYS_SEC:</span>
         <span class="time-value">{{ systemTime }}</span>
       </div>
+      <div class="render-scope">
+        CORE {{ graphNodes.length }} / {{ props.entities.length || 0 }}
+      </div>
     </div>
 
     <!-- Left HUD: Glassmorphic Dimensions Sidebar -->
@@ -238,6 +241,13 @@ const PERFORMANCE_LIMITS = {
   ultraNodeCount: 820,
 }
 
+const GRAPH_RENDER_LIMITS = {
+  maxNodes: 160,
+  maxLinks: 360,
+  selectedNeighborLimit: 72,
+  minCoreNodes: 90,
+}
+
 // Gesture click tracking to distinguish rotation drags from select clicks
 let pointerDownTime = 0
 const pointerDownPos = new THREE.Vector2()
@@ -256,19 +266,22 @@ const hudData = ref({
   relationItems: []
 })
 
-const graphNodes = computed(() => buildNodes(props.entities, props.relations))
+const relationStats = computed(() => buildRelationStats(props.entities, props.relations))
+const renderedGraph = computed(() => buildRenderedGraph(props.entities, props.relations, props.selectedEntity, relationStats.value))
+const graphNodes = computed(() => buildNodes(renderedGraph.value.entities, renderedGraph.value.relations, relationStats.value.countByName))
 const graphSignature = computed(() => {
-  const entityPart = (props.entities || [])
+  const entityPart = (renderedGraph.value.entities || [])
     .map(entity => `${entity.id ?? ''}:${entity.name ?? ''}:${entity.entity_type ?? entity.type ?? ''}:${entity.weight ?? entity.importance ?? entity.score ?? ''}:${entity.x ?? ''}:${entity.y ?? ''}:${entity.z ?? ''}`)
     .join('|')
-  const relationPart = (props.relations || [])
+  const relationPart = (renderedGraph.value.relations || [])
     .map(rel => `${rel.source ?? rel.source_id ?? ''}>${rel.target ?? rel.target_id ?? ''}:${rel.relation_type ?? rel.rel ?? rel.type ?? ''}`)
     .join('|')
-  return `${entityPart}::${relationPart}`
+  const selectedPart = props.selectedEntity ? `${props.selectedEntity.id || ''}:${props.selectedEntity.name || ''}` : ''
+  return `${entityPart}::${relationPart}::${selectedPart}`
 })
 
 const renderQuality = computed(() => {
-  const count = props.entities?.length || 0
+  const count = graphNodes.value.length
   if (count >= PERFORMANCE_LIMITS.ultraNodeCount) return 'ultra'
   if (count >= PERFORMANCE_LIMITS.lowNodeCount) return 'low'
   if (count >= PERFORMANCE_LIMITS.mediumNodeCount) return 'medium'
@@ -292,6 +305,98 @@ function shouldUseRichPlanet(node) {
   if (renderQuality.value === 'medium') return node.weight >= 6.5 || node.relationCount >= 2
   if (renderQuality.value === 'low') return node.weight >= 8 || node.relationCount >= 5
   return node.weight >= 9.2 || node.relationCount >= 8
+}
+
+function relationEndpoints(rel) {
+  return {
+    source: rel.source ?? rel.source_name ?? rel.source_id,
+    target: rel.target ?? rel.target_name ?? rel.target_id,
+    type: rel.relation_type || rel.rel || rel.type || '关联',
+  }
+}
+
+function relationKey(rel) {
+  const endpoint = relationEndpoints(rel)
+  return `${endpoint.source}->${endpoint.target}:${endpoint.type}`
+}
+
+function buildRelationStats(entities, relations) {
+  const entityNames = new Set((entities || []).map(entity => entity.name).filter(Boolean))
+  const countByName = Object.create(null)
+  const neighborsByName = new Map()
+  const validRelations = []
+
+  for (const entity of entities || []) {
+    if (!entity.name) continue
+    countByName[entity.name] = 0
+    neighborsByName.set(entity.name, new Set())
+  }
+
+  for (const rel of relations || []) {
+    const { source, target } = relationEndpoints(rel)
+    if (!source || !target || !entityNames.has(source) || !entityNames.has(target)) continue
+    validRelations.push(rel)
+    countByName[source] = (countByName[source] || 0) + 1
+    countByName[target] = (countByName[target] || 0) + 1
+    neighborsByName.get(source)?.add(target)
+    neighborsByName.get(target)?.add(source)
+  }
+
+  return { countByName, neighborsByName, validRelations }
+}
+
+function buildRenderedGraph(entities, relations, selectedEntity, stats) {
+  const sourceEntities = Array.isArray(entities) ? entities : []
+  const entityByName = new Map(sourceEntities.map(entity => [entity.name, entity]).filter(([name]) => !!name))
+  const countByName = stats.countByName || {}
+  const neighborsByName = stats.neighborsByName || new Map()
+  const validRelations = stats.validRelations || []
+  const sortedEntities = [...sourceEntities]
+    .filter(entity => entity.name)
+    .sort((a, b) => {
+      const degreeDiff = (countByName[b.name] || 0) - (countByName[a.name] || 0)
+      if (degreeDiff !== 0) return degreeDiff
+      return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN')
+    })
+
+  const selectedName = selectedEntity?.name
+  const selectedNeighbors = selectedName ? [...(neighborsByName.get(selectedName) || [])] : []
+  const selectedNeighborSet = new Set(selectedNeighbors.slice(0, GRAPH_RENDER_LIMITS.selectedNeighborLimit))
+  const visibleNames = new Set()
+
+  if (selectedName && entityByName.has(selectedName)) {
+    visibleNames.add(selectedName)
+    for (const name of selectedNeighborSet) visibleNames.add(name)
+  }
+
+  for (const entity of sortedEntities) {
+    if (visibleNames.size >= GRAPH_RENDER_LIMITS.maxNodes) break
+    if ((countByName[entity.name] || 0) === 0 && visibleNames.size >= GRAPH_RENDER_LIMITS.minCoreNodes) continue
+    visibleNames.add(entity.name)
+  }
+
+  const renderedEntities = sortedEntities.filter(entity => visibleNames.has(entity.name))
+  const seenRelations = new Set()
+  const selectedRelationNames = new Set()
+  const coreRelations = []
+
+  for (const rel of validRelations) {
+    const { source, target } = relationEndpoints(rel)
+    if (!visibleNames.has(source) || !visibleNames.has(target)) continue
+    const key = relationKey(rel)
+    if (seenRelations.has(key)) continue
+    seenRelations.add(key)
+    if (selectedName && (source === selectedName || target === selectedName)) {
+      selectedRelationNames.add(key)
+    } else {
+      coreRelations.push(rel)
+    }
+  }
+
+  const selectedRelations = validRelations.filter(rel => selectedRelationNames.has(relationKey(rel)))
+  const renderedRelations = [...selectedRelations, ...coreRelations].slice(0, GRAPH_RENDER_LIMITS.maxLinks)
+
+  return { entities: renderedEntities, relations: renderedRelations, hiddenCount: Math.max(0, sourceEntities.length - renderedEntities.length) }
 }
 
 // 3D Force Relaxation Layout to prevent clumping and overlap of planets/text labels
@@ -349,8 +454,9 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
     
     // Attraction along logical relations/links
     for (const rel of relations) {
-      const nodeA = nodeByName.get(rel.source)
-      const nodeB = nodeByName.get(rel.target)
+      const { source, target } = relationEndpoints(rel)
+      const nodeA = nodeByName.get(source)
+      const nodeB = nodeByName.get(target)
       if (!nodeA || !nodeB) continue
       
       const dx = nodeA.position.x - nodeB.position.x
@@ -364,8 +470,8 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
         const pullY = (dy / dist) * pull
         const pullZ = (dz / dist) * pull
         
-        const idxA = nodes.indexOf(nodeA)
-        const idxB = nodes.indexOf(nodeB)
+        const idxA = nodeA.layoutIndex
+        const idxB = nodeB.layoutIndex
         
         displacements[idxA].x -= pullX
         displacements[idxA].y -= pullY
@@ -400,13 +506,7 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
   }
 }
 
-function buildNodes(entities, relations) {
-  const relationCount = Object.create(null)
-  for (const rel of relations) {
-    relationCount[rel.source] = (relationCount[rel.source] || 0) + 1
-    relationCount[rel.target] = (relationCount[rel.target] || 0) + 1
-  }
-
+function buildNodes(entities, relations, relationCount) {
   const sorted = [...entities]
     .sort((a, b) => (relationCount[b.name] || 0) - (relationCount[a.name] || 0))
 
@@ -432,6 +532,7 @@ function buildNodes(entities, relations) {
       color: galaxy.color,
       weight,
       relationCount: relationCount[entity.name] || 0,
+      layoutIndex: index,
       position: new THREE.Vector3(preset[0], preset[1], preset[2]),
     }
   })
@@ -491,12 +592,16 @@ function syncRightPanelData(node) {
   const raw = node.raw || {}
   const typeLabel = raw.entity_type || raw.type || node.category || 'Unknown'
   const description = raw.description || raw.desc || raw.summary || raw.content || '该实体暂无描述。'
-  const relationItems = props.relations
-    .filter(rel => rel.source === name || rel.target === name || rel.source_id === node.id || rel.target_id === node.id)
+  const relationItems = (props.relations || [])
+    .filter(rel => {
+      const endpoint = relationEndpoints(rel)
+      return endpoint.source === name || endpoint.target === name || rel.source_id === node.id || rel.target_id === node.id
+    })
+    .slice(0, 80)
     .map(rel => {
-      const relationType = rel.relation_type || rel.rel || rel.type || '关联'
-      if (rel.source === name || rel.source_id === node.id) return `${name} → ${relationType} → ${rel.target}`
-      return `${rel.source} → ${relationType} → ${name}`
+      const endpoint = relationEndpoints(rel)
+      if (endpoint.source === name || rel.source_id === node.id) return `${name} → ${endpoint.type} → ${endpoint.target}`
+      return `${endpoint.source} → ${endpoint.type} → ${name}`
     })
   
   hudData.value = {
@@ -515,6 +620,8 @@ function syncRightPanelData(node) {
 
 function closeDetailPanel() {
   isNodeHovered.value = false
+  emit('select', null)
+  clearGraphHighlight()
 }
 
 // GSAP Switch Mode Transition Function
@@ -800,7 +907,7 @@ function createDust() {
   const colors = []
 
   // Global subtle stars
-  const globalCount = 1800
+  const globalCount = 900
   for (let i = 0; i < globalCount; i++) {
     const radius = 180 + Math.random() * 450
     const theta = Math.random() * Math.PI * 2
@@ -818,7 +925,7 @@ function createDust() {
   Object.keys(GALAXIES).forEach((key) => {
     const galaxy = GALAXIES[key]
     const color = new THREE.Color(galaxy.color)
-    const pCount = 300
+    const pCount = 120
     for (let j = 0; j < pCount; j++) {
       const u = Math.random()
       const r = (u * u) * 25 + 2.5
@@ -924,14 +1031,15 @@ function createLinks(visibleNames, nodeByName) {
   const allowFlowParticles = renderQuality.value !== 'ultra'
   let flowCount = 0
 
-  for (const rel of props.relations) {
-    if (!visibleNames.has(rel.source) || !visibleNames.has(rel.target)) continue
-    const key = `${rel.source}->${rel.target}:${rel.relation_type || rel.rel || ''}`
+  for (const rel of renderedGraph.value.relations) {
+    const endpoint = relationEndpoints(rel)
+    if (!visibleNames.has(endpoint.source) || !visibleNames.has(endpoint.target)) continue
+    const key = relationKey(rel)
     if (seen.has(key)) continue
     seen.add(key)
 
-    const source = nodeByName.get(rel.source)
-    const target = nodeByName.get(rel.target)
+    const source = nodeByName.get(endpoint.source)
+    const target = nodeByName.get(endpoint.target)
     
     // 1. Connection lines
     const geometry = new THREE.BufferGeometry().setFromPoints([source.position, target.position])
@@ -942,7 +1050,9 @@ function createLinks(visibleNames, nodeByName) {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
-    linkGroup.add(new THREE.Line(geometry, material))
+    const line = new THREE.Line(geometry, material)
+    line.userData.graphLink = { source: endpoint.source, target: endpoint.target, type: endpoint.type }
+    linkGroup.add(line)
 
     if (!allowFlowParticles || flowCount > 420) continue
 
@@ -1509,6 +1619,7 @@ function findNodeFromHit(hits) {
 function closePopup() {
   isNodeHovered.value = false
   emit('select', null)
+  clearGraphHighlight()
   resetView()
 }
 
@@ -1542,6 +1653,7 @@ function focusNode(node) {
   cameraTarget.copy(targetCam)
   animateCameraTo(targetCam, focusTarget.clone(), 0.95)
   controls.autoRotate = false
+  applyGraphHighlight(node)
 }
 
 function isSelectedNode(node) {
@@ -1553,10 +1665,104 @@ function isHoveredNode(node) {
   return !!hoveredNode && (hoveredNode.id === node.id || hoveredNode.name === node.name)
 }
 
+function selectedNeighborNames() {
+  const selected = props.selectedEntity
+  if (!selected?.name) return new Set()
+  const names = new Set([selected.name])
+  for (const rel of props.relations || []) {
+    const endpoint = relationEndpoints(rel)
+    if (endpoint.source === selected.name) names.add(endpoint.target)
+    if (endpoint.target === selected.name) names.add(endpoint.source)
+  }
+  return names
+}
+
+function isRelatedToSelectedNode(node) {
+  if (!props.selectedEntity?.name) return false
+  return selectedNeighborNames().has(node.name)
+}
+
+function targetScaleForNode(node) {
+  if (!node) return 1
+  if (isSelectedNode(node)) return 1.32
+  if (isRelatedToSelectedNode(node)) return 1.08
+  return 1
+}
+
+function setMaterialOpacity(object, opacityScale, emphasize = false) {
+  object.traverse(child => {
+    const materials = Array.isArray(child.material) ? child.material : child.material ? [child.material] : []
+    for (const material of materials) {
+      if (material.userData.baseOpacity == null) {
+        material.userData.baseOpacity = material.opacity ?? 1
+      }
+      material.transparent = true
+      material.opacity = THREE.MathUtils.clamp(material.userData.baseOpacity * opacityScale, 0.025, 1)
+      if ('emissiveIntensity' in material) {
+        if (material.userData.baseEmissiveIntensity == null) {
+          material.userData.baseEmissiveIntensity = material.emissiveIntensity ?? 0
+        }
+        material.emissiveIntensity = material.userData.baseEmissiveIntensity * (emphasize ? 1.9 : opacityScale < 0.5 ? 0.45 : 1)
+      }
+    }
+  })
+}
+
+function applyGraphHighlight(node) {
+  if (!nodeGroup || !linkGroup) return
+  const relatedNames = new Set([node.name])
+  for (const rel of props.relations || []) {
+    const endpoint = relationEndpoints(rel)
+    if (endpoint.source === node.name) relatedNames.add(endpoint.target)
+    if (endpoint.target === node.name) relatedNames.add(endpoint.source)
+  }
+
+  nodeGroup.children.forEach(group => {
+    const item = group.userData.node
+    if (!item) return
+    const selected = item.name === node.name
+    const related = relatedNames.has(item.name)
+    setMaterialOpacity(group, related ? 1 : 0.18, selected)
+    gsap.to(group.scale, {
+      x: selected ? 1.32 : related ? 1.08 : 0.92,
+      y: selected ? 1.32 : related ? 1.08 : 0.92,
+      z: selected ? 1.32 : related ? 1.08 : 0.92,
+      duration: 0.28,
+      overwrite: 'auto'
+    })
+  })
+
+  linkGroup.children.forEach(line => {
+    const link = line.userData.graphLink
+    if (!link?.source || !line.material) return
+    if (line.material.userData.baseOpacity == null) {
+      line.material.userData.baseOpacity = line.material.opacity ?? 1
+    }
+    const active = link.source === node.name || link.target === node.name
+    line.material.opacity = active ? Math.max(0.5, line.material.userData.baseOpacity * 4.2) : 0.035
+    line.material.linewidth = active ? 2 : 1
+  })
+}
+
+function clearGraphHighlight() {
+  if (!nodeGroup && !linkGroup) return
+  nodeGroup?.children.forEach(group => {
+    setMaterialOpacity(group, 1, false)
+    gsap.to(group.scale, { x: 1, y: 1, z: 1, duration: 0.24, overwrite: 'auto' })
+  })
+  linkGroup?.children.forEach(line => {
+    if (!line.material) return
+    line.material.opacity = line.material.userData.baseOpacity ?? 0.11
+    line.material.linewidth = 1
+  })
+}
+
 function updateLabelVisibility() {
   if (!camera || !renderer || !labelObjects.length) return
 
-  const maxVisible = viewMode.value === 'topology' ? 16 : 24
+  const hasSelection = !!props.selectedEntity?.name
+  const activeNeighborNames = selectedNeighborNames()
+  const maxVisible = hasSelection ? 44 : viewMode.value === 'topology' ? 14 : 22
   const candidates = []
   const width = renderer.domElement.clientWidth || 1
   const height = renderer.domElement.clientHeight || 1
@@ -1579,6 +1785,7 @@ function updateLabelVisibility() {
 
     const selected = isSelectedNode(node)
     const hovered = isHoveredNode(node)
+    const related = activeNeighborNames.has(node.name)
     const sphereOnScreen =
       labelScreenPos.z > -1 &&
       labelScreenPos.z < 1 &&
@@ -1588,14 +1795,14 @@ function updateLabelVisibility() {
       labelScreenPos.y < 0.98
 
     const priority = node.weight + node.relationCount * 0.42
-    const distanceLimit = selected || hovered
+    const distanceLimit = selected || hovered || related
       ? 180
       : node.weight >= 9
         ? 116
         : node.relationCount >= 5
           ? 96
           : 78
-    const readable = sphereOnScreen && (selected || hovered || (distance < distanceLimit && priority >= 5.8))
+    const readable = sphereOnScreen && (selected || hovered || related || (distance < distanceLimit && priority >= 6.2))
 
     if (readable) {
       const sphereX = (labelScreenPos.x * 0.5 + 0.5) * width
@@ -1609,10 +1816,11 @@ function updateLabelVisibility() {
         distance,
         selected,
         hovered,
+        related,
         priority,
         x: sphereX,
         y: sphereY - screenRadius - 4,
-        score: (selected ? 1200 : 0) + (hovered ? 800 : 0) + priority * 34 - distance,
+        score: (selected ? 1400 : 0) + (hovered ? 900 : 0) + (related ? 620 : 0) + priority * 34 - distance,
       })
     } else {
       el.style.display = 'none'
@@ -1634,13 +1842,15 @@ function updateLabelVisibility() {
     const distanceFade = THREE.MathUtils.clamp(1 - (item.distance - 78) / 138, 0.24, 1)
     const opacity = item.selected || item.hovered
       ? 1
+      : item.related
+        ? 0.92
       : Math.min(item.labelObj.baseOpacity, distanceFade)
     el.style.display = 'block'
     el.style.left = `${item.x.toFixed(1)}px`
     el.style.top = `${item.y.toFixed(1)}px`
     el.style.setProperty('--label-opacity', opacity.toFixed(2))
     el.classList.toggle('is-focus', item.selected)
-    el.classList.toggle('is-hovered', item.hovered)
+    el.classList.toggle('is-hovered', item.hovered || item.related)
   }
 }
 
@@ -1657,7 +1867,8 @@ function updateHoverRaycaster() {
       if (hoveredNode) {
         const prevGroup = nodeObjects.get(hoveredNode.id)
         if (prevGroup) {
-          gsap.to(prevGroup.scale, { x: 1.0, y: 1.0, z: 1.0, duration: 0.35, overwrite: 'auto' })
+          const prevScale = targetScaleForNode(hoveredNode)
+          gsap.to(prevGroup.scale, { x: prevScale, y: prevScale, z: prevScale, duration: 0.35, overwrite: 'auto' })
         }
       }
       
@@ -1667,7 +1878,8 @@ function updateHoverRaycaster() {
       // Scale up current hovered node smoothly using GSAP
       const currentGroup = nodeObjects.get(node.id)
       if (currentGroup) {
-        gsap.to(currentGroup.scale, { x: 1.18, y: 1.18, z: 1.18, duration: 0.35, overwrite: 'auto' })
+        const hoverScale = Math.max(1.18, targetScaleForNode(node))
+        gsap.to(currentGroup.scale, { x: hoverScale, y: hoverScale, z: hoverScale, duration: 0.35, overwrite: 'auto' })
       }
       
     }
@@ -1676,7 +1888,8 @@ function updateHoverRaycaster() {
     if (hoveredNode) {
       const prevGroup = nodeObjects.get(hoveredNode.id)
       if (prevGroup) {
-        gsap.to(prevGroup.scale, { x: 1.0, y: 1.0, z: 1.0, duration: 0.35, overwrite: 'auto' })
+        const prevScale = targetScaleForNode(hoveredNode)
+        gsap.to(prevGroup.scale, { x: prevScale, y: prevScale, z: prevScale, duration: 0.35, overwrite: 'auto' })
       }
       hoveredNode = null
     }
@@ -2028,6 +2241,17 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 }
 
+.render-scope {
+  font-family: monospace;
+  font-size: 10px;
+  color: rgba(125, 211, 252, 0.72);
+  padding: 4px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  background: rgba(14, 165, 233, 0.06);
+  white-space: nowrap;
+}
+
 /* 3. Left Glassmorphic Sidebar HUD */
 .cosmos-left-sidebar {
   position: absolute;
@@ -2231,6 +2455,9 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   transform: translateX(-24px);
   pointer-events: none;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Faint neon glowing border on active hover status */
@@ -2250,8 +2477,25 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   padding: 16px;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-height: inherit;
   overflow-y: auto;
+  overscroll-behavior: contain;
   box-sizing: border-box;
+}
+
+.panel-content::-webkit-scrollbar {
+  width: 7px;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.24);
+  border-radius: 999px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.28);
 }
 
 .panel-node-header {
@@ -2361,6 +2605,18 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.panel-memory-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-memory-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
 }
 
 .panel-memory-list .memory-item {
@@ -2473,6 +2729,10 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   }
 
   .system-time {
+    display: none;
+  }
+
+  .render-scope {
     display: none;
   }
 

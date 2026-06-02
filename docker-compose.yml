@@ -173,13 +173,14 @@ services:
     profiles:
       - test
 
-  # ==================== 前端 (Vue 3 多阶段构建) ====================
+  # ==================== 前端 (挂载本地构建产物) ====================
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: nginx:alpine
     container_name: rag-frontend
     restart: unless-stopped
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - rag-network
 
