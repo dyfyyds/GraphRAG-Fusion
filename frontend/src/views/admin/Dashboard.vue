@@ -62,14 +62,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import * as echarts from 'echarts'
+import { ref, onMounted, computed, nextTick } from 'vue'
+import { ElEmpty } from 'element-plus'
+import * as echarts from 'echarts/core'
+import { LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import request from '../../api/request'
+
+echarts.use([LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const stats = ref({})
 const trend = ref([])
 const hotQuestions = ref([])
 const docTypes = ref([])
+const healthLoading = ref(false)
 const trendChartRef = ref()
 const pieChartRef = ref()
 
@@ -111,6 +118,14 @@ const statCards = computed(() => [
 const systemStatus = computed(() => {
   const raw = stats.value.system_status
   if (Array.isArray(raw)) return raw
+  if (healthLoading.value) {
+    return [{
+      name: '系统健康检查',
+      status: 'warning',
+      statusText: '检测中',
+      detail: '后台检测服务连接状态',
+    }]
+  }
   return []
 })
 
@@ -198,31 +213,47 @@ function renderPieChart() {
   })
 }
 
+function renderChartsLater() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      renderTrendChart()
+      renderPieChart()
+    })
+  })
+}
+
+async function loadSystemHealth() {
+  healthLoading.value = true
+  try {
+    const health = await request.get('/dashboard/system-health')
+    if (Array.isArray(health) && health.length) {
+      stats.value = {
+        ...stats.value,
+        system_status: health.map(svc => ({
+          name: svc.name,
+          status: svc.status,
+          statusText: statusTextOf(svc.status),
+          detail: svc.detail || '',
+        })),
+      }
+    }
+  } catch {
+  } finally {
+    healthLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
-    const [s, t, h, d, health] = await Promise.all([
-      request.get('/dashboard/stats'),
-      request.get('/dashboard/trend'),
-      request.get('/dashboard/hot-questions'),
-      request.get('/dashboard/doc-types').catch(() => []),
-      request.get('/dashboard/system-health').catch(() => []),
-    ])
-    stats.value = s
-    trend.value = t
-    hotQuestions.value = h
-    docTypes.value = Array.isArray(d) ? d : (d?.list || [])
-    if (Array.isArray(health) && health.length) {
-      stats.value.system_status = health.map(svc => ({
-        name: svc.name,
-        status: svc.status,
-        statusText: statusTextOf(svc.status),
-        detail: svc.detail || '',
-      }))
-    }
+    const overview = await request.get('/dashboard/overview')
+    stats.value = overview.stats || {}
+    trend.value = overview.trend || []
+    hotQuestions.value = overview.hotQuestions || []
+    docTypes.value = Array.isArray(overview.docTypes) ? overview.docTypes : []
   } catch {}
 
-  renderTrendChart()
-  renderPieChart()
+  renderChartsLater()
+  loadSystemHealth()
 })
 
 function statusTextOf(status) {

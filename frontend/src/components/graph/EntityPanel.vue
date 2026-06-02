@@ -9,6 +9,8 @@
 </template>
 
 <script setup>
+import { ElDescriptions, ElDescriptionsItem, ElDrawer } from 'element-plus'
+
 defineProps({ entity: Object })
 defineEmits(['close'])
 </script>

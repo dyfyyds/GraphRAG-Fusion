@@ -94,7 +94,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElDialog, ElEmpty, ElIcon, ElInput, ElMessage, ElMessageBox, ElPagination } from 'element-plus'
 import { Search, Document } from '@element-plus/icons-vue'
 import request from '../../api/request'
 

@@ -42,9 +42,23 @@
 <script setup>
 import { computed, ref } from 'vue'
 import markdownit from 'markdown-it'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import python from 'highlight.js/lib/languages/python'
+import xml from 'highlight.js/lib/languages/xml'
 import SourceCard from './SourceCard.vue'
 import { useUserStore } from '../../store/user'
+
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('py', python)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('xml', xml)
 
 const md = markdownit({
   html: false,

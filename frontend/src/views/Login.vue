@@ -68,7 +68,8 @@
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../store/user'
-import { ElMessage } from 'element-plus'
+import 'element-plus/dist/index.css'
+import { ElButton, ElCheckbox, ElForm, ElFormItem, ElIcon, ElInput, ElMessage } from 'element-plus'
 import { User, Lock, Message } from '@element-plus/icons-vue'
 
 const router = useRouter()

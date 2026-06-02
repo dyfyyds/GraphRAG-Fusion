@@ -80,6 +80,8 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import 'element-plus/dist/index.css'
+import { ElAside, ElContainer, ElHeader, ElIcon, ElMain, ElMenu, ElMenuItem, ElScrollbar } from 'element-plus'
 import { useUserStore } from '../../store/user'
 import { DataBoard, Document, Share, User, Clock, Setting, ChatDotRound } from '@element-plus/icons-vue'
 

@@ -62,6 +62,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { ElEmpty, ElInput } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { useUserStore } from '../../store/user'
 

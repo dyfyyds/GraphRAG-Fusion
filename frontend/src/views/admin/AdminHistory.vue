@@ -160,7 +160,20 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import {
+  ElButton,
+  ElCheckbox,
+  ElDatePicker,
+  ElDialog,
+  ElIcon,
+  ElInput,
+  ElMessage,
+  ElOption,
+  ElPagination,
+  ElSelect,
+  ElTable,
+  ElTableColumn,
+} from 'element-plus'
 import { Search, Download, Document } from '@element-plus/icons-vue'
 import request from '../../api/request'
 

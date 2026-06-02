@@ -523,7 +523,18 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import {
+  ElButton,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElMessage,
+  ElOption,
+  ElSelect,
+  ElSlider,
+  ElSwitch,
+  ElTag,
+} from 'element-plus'
 import { Check, Connection, Cpu, Document, FolderOpened, Monitor, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import request from '../../api/request'
 

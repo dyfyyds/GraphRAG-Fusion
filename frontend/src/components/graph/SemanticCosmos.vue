@@ -228,6 +228,15 @@ let hoveredNode = null
 // Flow particles array for animating logical relationships
 const flowParticles = []
 const spriteTextureCache = new Map()
+const geometryCache = new Map()
+let lastGraphSignature = ''
+let animationFrameTick = 0
+
+const PERFORMANCE_LIMITS = {
+  mediumNodeCount: 180,
+  lowNodeCount: 420,
+  ultraNodeCount: 820,
+}
 
 // Gesture click tracking to distinguish rotation drags from select clicks
 let pointerDownTime = 0
@@ -248,6 +257,42 @@ const hudData = ref({
 })
 
 const graphNodes = computed(() => buildNodes(props.entities, props.relations))
+const graphSignature = computed(() => {
+  const entityPart = (props.entities || [])
+    .map(entity => `${entity.id ?? ''}:${entity.name ?? ''}:${entity.entity_type ?? entity.type ?? ''}:${entity.weight ?? entity.importance ?? entity.score ?? ''}:${entity.x ?? ''}:${entity.y ?? ''}:${entity.z ?? ''}`)
+    .join('|')
+  const relationPart = (props.relations || [])
+    .map(rel => `${rel.source ?? rel.source_id ?? ''}>${rel.target ?? rel.target_id ?? ''}:${rel.relation_type ?? rel.rel ?? rel.type ?? ''}`)
+    .join('|')
+  return `${entityPart}::${relationPart}`
+})
+
+const renderQuality = computed(() => {
+  const count = props.entities?.length || 0
+  if (count >= PERFORMANCE_LIMITS.ultraNodeCount) return 'ultra'
+  if (count >= PERFORMANCE_LIMITS.lowNodeCount) return 'low'
+  if (count >= PERFORMANCE_LIMITS.mediumNodeCount) return 'medium'
+  return 'high'
+})
+
+function getCachedGeometry(key, factory) {
+  if (geometryCache.has(key)) return geometryCache.get(key)
+  const geometry = factory()
+  geometry.userData.cachedGeometry = true
+  geometryCache.set(key, geometry)
+  return geometry
+}
+
+function getRoundedRadius(radius, step = 0.12) {
+  return Math.max(step, Math.round(radius / step) * step)
+}
+
+function shouldUseRichPlanet(node) {
+  if (renderQuality.value === 'high') return true
+  if (renderQuality.value === 'medium') return node.weight >= 6.5 || node.relationCount >= 2
+  if (renderQuality.value === 'low') return node.weight >= 8 || node.relationCount >= 5
+  return node.weight >= 9.2 || node.relationCount >= 8
+}
 
 // 3D Force Relaxation Layout to prevent clumping and overlap of planets/text labels
 function runSimple3DForceLayout(nodes, relations, iterations = 130) {
@@ -623,8 +668,8 @@ function initScene() {
   camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1200)
   camera.position.set(0, 0, 185)
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 0.92
@@ -676,7 +721,7 @@ function initScene() {
 
   // 3. Setup effects
   const renderPass = new RenderPass(scene, camera)
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.62, 0.42, 0.18)
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.46, 0.34, 0.22)
   composer = new EffectComposer(renderer)
   composer.addPass(renderPass)
   composer.addPass(bloomPass)
@@ -875,6 +920,9 @@ function renderCosmos() {
 function createLinks(visibleNames, nodeByName) {
   const seen = new Set()
   flowParticles.length = 0
+  const pulseGeom = getCachedGeometry('flow-pulse-sphere', () => new THREE.SphereGeometry(0.24, 8, 8))
+  const allowFlowParticles = renderQuality.value !== 'ultra'
+  let flowCount = 0
 
   for (const rel of props.relations) {
     if (!visibleNames.has(rel.source) || !visibleNames.has(rel.target)) continue
@@ -896,8 +944,9 @@ function createLinks(visibleNames, nodeByName) {
     })
     linkGroup.add(new THREE.Line(geometry, material))
 
+    if (!allowFlowParticles || flowCount > 420) continue
+
     // 2. Glowing photon flow particle
-    const pulseGeom = new THREE.SphereGeometry(0.24, 8, 8)
     const pulseMat = new THREE.MeshBasicMaterial({
       color: target.color,
       transparent: true,
@@ -914,11 +963,16 @@ function createLinks(visibleNames, nodeByName) {
       speed: 0.28 + Math.random() * 0.32,
       offset: Math.random()
     })
+    flowCount++
   }
 }
 
 function createPlanet(node) {
   const radius = visualRadius(node)
+  const roundedRadius = getRoundedRadius(radius)
+  const richPlanet = shouldUseRichPlanet(node)
+  const sphereSegments = richPlanet ? 32 : 16
+  const sphereRings = richPlanet ? 16 : 8
   const color = new THREE.Color(node.color)
   const darkColor = color.clone().multiplyScalar(0.34)
   const group = new THREE.Group()
@@ -926,7 +980,7 @@ function createPlanet(node) {
   group.userData.node = node
 
   // 1. Layered planet body: dark glass shell + controlled emissive edge, not a blown-out light blob.
-  const sphereGeom = new THREE.SphereGeometry(radius, 48, 24)
+  const sphereGeom = getCachedGeometry(`sphere:${roundedRadius}:${sphereSegments}:${sphereRings}`, () => new THREE.SphereGeometry(roundedRadius, sphereSegments, sphereRings))
   const sphereMat = new THREE.MeshPhysicalMaterial({
     color: darkColor,
     emissive: color,
@@ -947,7 +1001,8 @@ function createPlanet(node) {
   group.add(sphere)
 
   // 2. Small inner core, intentionally dim so the 3D form remains readable.
-  const coreGeom = new THREE.SphereGeometry(radius * 0.26, 32, 16)
+  const coreRadius = getRoundedRadius(radius * 0.26, 0.04)
+  const coreGeom = getCachedGeometry(`core:${coreRadius}:${richPlanet ? 16 : 10}`, () => new THREE.SphereGeometry(coreRadius, richPlanet ? 16 : 10, richPlanet ? 8 : 6))
   const coreMat = new THREE.MeshBasicMaterial({
     color: color.clone().lerp(new THREE.Color('#ffffff'), 0.18),
     transparent: true,
@@ -960,7 +1015,8 @@ function createPlanet(node) {
   group.add(core)
 
   // 3. Controlled atmospheric halo.
-  const haloGeom = new THREE.SphereGeometry(radius * 1.65, 32, 16)
+  const haloRadius = getRoundedRadius(radius * 1.65)
+  const haloGeom = getCachedGeometry(`halo:${haloRadius}:${richPlanet ? 18 : 10}`, () => new THREE.SphereGeometry(haloRadius, richPlanet ? 18 : 10, richPlanet ? 10 : 6))
   const haloMat = new THREE.MeshBasicMaterial({
     color: color,
     transparent: true,
@@ -971,8 +1027,10 @@ function createPlanet(node) {
   const halo = new THREE.Mesh(haloGeom, haloMat)
   group.add(halo)
 
-  addPlanetSurfaceBands(group, node, radius, color)
-  addPlanetDetailShell(group, node, radius, color)
+  if (richPlanet) {
+    addPlanetSurfaceBands(group, node, radius, color)
+    addPlanetDetailShell(group, node, radius, color)
+  }
 
   const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: getGlowTexture(node.color),
@@ -987,9 +1045,9 @@ function createPlanet(node) {
   group.add(glowSprite)
 
   // 4. Broad glowing Saturnal rings, close to the reference "knowledge planet" look.
-  if (node.weight >= 6.4 || node.relationCount >= 1) {
+  if (richPlanet && (node.weight >= 6.4 || node.relationCount >= 1)) {
     const flatRing = new THREE.Mesh(
-      new THREE.RingGeometry(radius * 1.62, radius * 2.35, 160),
+      getCachedGeometry(`flat-ring:${getRoundedRadius(radius * 1.62)}:${getRoundedRadius(radius * 2.35)}`, () => new THREE.RingGeometry(getRoundedRadius(radius * 1.62), getRoundedRadius(radius * 2.35), 96)),
       new THREE.MeshBasicMaterial({
         color: color,
         side: THREE.DoubleSide,
@@ -1005,7 +1063,7 @@ function createPlanet(node) {
     group.add(flatRing)
 
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 2.05, radius * 0.028, 10, 160),
+      getCachedGeometry(`main-ring:${getRoundedRadius(radius * 2.05)}:${getRoundedRadius(radius * 0.028, 0.006)}`, () => new THREE.TorusGeometry(getRoundedRadius(radius * 2.05), getRoundedRadius(radius * 0.028, 0.006), 8, 96)),
       new THREE.MeshBasicMaterial({
         color: color,
         transparent: true,
@@ -1032,9 +1090,9 @@ function createPlanet(node) {
   }
 
   // 5. Wireframe concept shells add the gem/polyhedron variation visible in the reference.
-  if ((node.weight >= 6.8 || node.relationCount >= 2) && ['Abstract', 'Art', 'Creation'].includes(node.category)) {
+  if (richPlanet && (node.weight >= 6.8 || node.relationCount >= 2) && ['Abstract', 'Art', 'Creation'].includes(node.category)) {
     const wire = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(radius * 1.34, 1),
+      getCachedGeometry(`wire:${getRoundedRadius(radius * 1.34)}`, () => new THREE.IcosahedronGeometry(getRoundedRadius(radius * 1.34), 1)),
       new THREE.MeshBasicMaterial({
         color,
         wireframe: true,
@@ -1052,13 +1110,13 @@ function createPlanet(node) {
   }
 
   // 6. Orbiting little satellite moons
-  if (node.weight >= 8.8 || node.relationCount >= 5) {
+  if (richPlanet && (node.weight >= 8.8 || node.relationCount >= 5)) {
     const moonGroup = new THREE.Group()
     const moonRadius = radius * 0.14
     const moonCount = node.weight >= 9.5 ? 3 : 2
     for (let i = 0; i < moonCount; i++) {
       const moon = new THREE.Mesh(
-        new THREE.SphereGeometry(moonRadius * (i === 0 ? 1 : 0.72), 16, 16),
+        getCachedGeometry(`moon:${getRoundedRadius(moonRadius * (i === 0 ? 1 : 0.72), 0.03)}`, () => new THREE.SphereGeometry(getRoundedRadius(moonRadius * (i === 0 ? 1 : 0.72), 0.03), 10, 8)),
         new THREE.MeshBasicMaterial({
           color: new THREE.Color(i === 0 ? '#ffffff' : node.color),
           transparent: true,
@@ -1080,7 +1138,7 @@ function createPlanet(node) {
   }
 
   // 7. Local star dust and semantic debris around important/highly connected nodes.
-  if (node.weight >= 7 || node.relationCount >= 3) {
+  if (richPlanet && (node.weight >= 7 || node.relationCount >= 3)) {
     group.add(createLocalDustCluster(node, radius, color))
   }
 
@@ -1341,7 +1399,7 @@ function clearGraphObjects() {
     if (!group) continue
     scene.remove(group)
     group.traverse(obj => {
-      obj.geometry?.dispose?.()
+      if (obj.geometry && !obj.geometry.userData?.cachedGeometry) obj.geometry.dispose?.()
       if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose?.())
       else obj.material?.dispose?.()
       if (obj.element?.remove) obj.element.remove()
@@ -1679,6 +1737,7 @@ function resize() {
 
 function animate() {
   animationId = requestAnimationFrame(animate)
+  animationFrameTick += 1
   const elapsed = performance.now() * 0.001
 
   if (dust) {
@@ -1695,7 +1754,9 @@ function animate() {
   }
 
   if (nodeGroup) {
+    const animateEvery = renderQuality.value === 'ultra' ? 4 : renderQuality.value === 'low' ? 3 : 1
     nodeGroup.children.forEach((group, index) => {
+      if (index % animateEvery !== animationFrameTick % animateEvery) return
       group.rotation.y += 0.002 + (index % 5) * 0.00018
       const ring = group.children.find(child => child.userData.isRing)
       if (ring) ring.rotation.z += 0.005
@@ -1714,13 +1775,15 @@ function animate() {
   controls.update()
 
   // Real-time hover detection
-  updateHoverRaycaster()
+  const hoverInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 8
+  if (animationFrameTick % hoverInterval === 0) updateHoverRaycaster()
 
   // Real-time distance bloom flaring
   updateCameraDistanceGlow()
 
   // Bind labels to planets while hiding distant and low-priority labels.
-  updateLabelVisibility()
+  const labelInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 6
+  if (animationFrameTick % labelInterval === 0 || isCameraAnimating) updateLabelVisibility()
 
   composer.render()
   labelRenderer.render(scene, camera)
@@ -1762,14 +1825,17 @@ function disposeScene() {
   labelLayer = null
   spriteTextureCache.forEach(texture => texture.dispose?.())
   spriteTextureCache.clear()
+  geometryCache.forEach(geometry => geometry.dispose?.())
+  geometryCache.clear()
 }
 
-// Watch props.entities and props.relations directly for instant asynchronous data load triggers!
-watch([() => props.entities, () => props.relations], () => {
+watch(graphSignature, (signature) => {
+  if (signature === lastGraphSignature) return
+  lastGraphSignature = signature
   nextTick(() => {
     renderCosmos()
   })
-}, { deep: true, immediate: true })
+}, { immediate: true })
 
 watch(() => props.selectedEntity, focusSelected)
 

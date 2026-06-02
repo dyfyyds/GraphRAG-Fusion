@@ -2,10 +2,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.mysql import get_db
-from app.schemas.dashboard import StatsOut, TrendItem, HotQuestion, DocTypeItem, SystemHealthItem
+from app.schemas.dashboard import DashboardOverview, StatsOut, TrendItem, HotQuestion, DocTypeItem, SystemHealthItem
 from app.services import dashboard_service
 
 router = APIRouter(prefix="/api/dashboard", tags=["工作台"])
+
+
+@router.get("/overview", response_model=DashboardOverview)
+async def get_overview(db: AsyncSession = Depends(get_db)):
+    return await dashboard_service.get_overview(db)
 
 
 @router.get("/stats", response_model=StatsOut)

@@ -203,7 +203,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElButton, ElDrawer, ElIcon, ElMessage, ElMessageBox, ElOption, ElSelect } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import request from '../../api/request'
 import { emit } from '../../utils/eventBus'
