@@ -1,4 +1,7 @@
 import asyncio
+from urllib.parse import urlparse
+
+import httpx
 from datetime import date, timedelta
 from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +12,11 @@ from app.models.user import User
 from app.models.message import Message
 from app.db.neo4j import get_neo4j_driver
 from app.db.chroma import get_chroma_client
+from app.core.embedding_client import _embedding_endpoints, _extract_embeddings
+from app.core.runtime_config import (
+    get_embedding_runtime_config,
+    get_llm_runtime_config,
+)
 
 
 async def get_stats(db: AsyncSession) -> dict:
@@ -114,8 +122,104 @@ async def get_system_health() -> list[dict]:
     except Exception:
         services.append({"name": "Neo4j 图数据库", "status": "offline", "detail": "连接失败"})
 
-    # LLM and Embedding are external services — report as placeholder
-    services.append({"name": "LLM 服务 (mimo-2.5-pro)", "status": "online", "detail": "外部服务"})
-    services.append({"name": "Embedding 服务 (BAAI/bge-m3)", "status": "online", "detail": "外部服务"})
+    llm_status, embedding_status = await asyncio.gather(
+        _check_llm_service(),
+        _check_embedding_service(),
+    )
+    services.extend([llm_status, embedding_status])
 
     return services
+
+
+def _safe_host(api_url: str) -> str:
+    parsed = urlparse(api_url or "")
+    return parsed.netloc or parsed.path.split("/")[0] or "未配置地址"
+
+
+def _short_timeout(value: int | float, default: float = 5.0) -> float:
+    try:
+        return max(1.0, min(float(value), default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _health_item(name: str, status: str, detail: str) -> dict:
+    return {"name": name, "status": status, "detail": detail}
+
+
+async def _check_llm_service() -> dict:
+    try:
+        config = await get_llm_runtime_config()
+    except Exception as exc:
+        return _health_item("LLM 服务", "offline", str(exc))
+
+    name = f"LLM 服务 ({config.model})"
+    detail_prefix = f"{_safe_host(config.api_url)}"
+    try:
+        async with httpx.AsyncClient(timeout=_short_timeout(config.timeout)) as client:
+            resp = await client.post(
+                config.api_url,
+                headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": config.model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                    "stream": False,
+                },
+            )
+        if resp.status_code in (401, 403):
+            return _health_item(name, "offline", f"{detail_prefix} | 认证失败")
+        if resp.status_code == 404:
+            return _health_item(name, "offline", f"{detail_prefix} | 接口或模型不存在")
+        if resp.status_code == 429:
+            return _health_item(name, "warning", f"{detail_prefix} | 额度不足或请求过快")
+        if resp.status_code >= 400:
+            return _health_item(name, "warning", f"{detail_prefix} | HTTP {resp.status_code}")
+        data = resp.json()
+        if not isinstance(data.get("choices"), list):
+            return _health_item(name, "warning", f"{detail_prefix} | 返回格式异常")
+        return _health_item(name, "online", f"{detail_prefix} | 连接正常")
+    except (httpx.TimeoutException, httpx.NetworkError):
+        return _health_item(name, "offline", f"{detail_prefix} | 连接超时")
+    except Exception as exc:
+        return _health_item(name, "warning", f"{detail_prefix} | {str(exc)[:80]}")
+
+
+async def _check_embedding_service() -> dict:
+    try:
+        config = await get_embedding_runtime_config()
+    except Exception as exc:
+        return _health_item("Embedding 服务", "offline", str(exc))
+
+    name = f"Embedding 服务 ({config.model})"
+    detail_prefix = f"{_safe_host(config.api_url)} | 维度: {config.dimension}"
+    last_404 = False
+    try:
+        async with httpx.AsyncClient(timeout=_short_timeout(config.timeout)) as client:
+            for endpoint in _embedding_endpoints(config.api_url):
+                resp = await client.post(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
+                    json={"model": config.model, "input": ["ping"]},
+                )
+                if resp.status_code == 404:
+                    last_404 = True
+                    continue
+                if resp.status_code in (401, 403):
+                    return _health_item(name, "offline", f"{detail_prefix} | 认证失败")
+                if resp.status_code == 429:
+                    return _health_item(name, "warning", f"{detail_prefix} | 额度不足或请求过快")
+                if resp.status_code >= 400:
+                    return _health_item(name, "warning", f"{detail_prefix} | HTTP {resp.status_code}")
+                embeddings = _extract_embeddings(resp.json())
+                if not embeddings:
+                    return _health_item(name, "warning", f"{detail_prefix} | 返回格式异常")
+                return _health_item(name, "online", f"{detail_prefix} | 连接正常")
+        if last_404:
+            return _health_item(name, "online", f"{detail_prefix} | 兼容向量可用")
+        return _health_item(name, "offline", f"{detail_prefix} | 未配置接口地址")
+    except (httpx.TimeoutException, httpx.NetworkError):
+        return _health_item(name, "offline", f"{detail_prefix} | 连接超时")
+    except Exception as exc:
+        return _health_item(name, "warning", f"{detail_prefix} | {str(exc)[:80]}")

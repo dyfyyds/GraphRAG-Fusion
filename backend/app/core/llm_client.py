@@ -18,7 +18,12 @@ def _friendly_http_error(exc: httpx.HTTPStatusError) -> str:
 
 
 class LLMClient:
+    def __init__(self, config: LLMRuntimeConfig | None = None):
+        self._override_config = config
+
     async def _config(self) -> LLMRuntimeConfig:
+        if self._override_config is not None:
+            return self._override_config
         return await get_llm_runtime_config()
 
     async def chat(

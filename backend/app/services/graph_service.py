@@ -1,9 +1,30 @@
 import asyncio
+import json
 import logging
 
+from app.core.entity_quality import is_high_quality_entity_name, normalize_entity_name
 from app.db.neo4j import get_neo4j_driver
 
 logger = logging.getLogger("app")
+
+
+def _limit_clause(limit: int) -> str:
+    return " LIMIT $limit" if limit and limit > 0 else ""
+
+
+def _apply_python_limit(items: list[dict], limit: int) -> list[dict]:
+    return items[:limit] if limit and limit > 0 else items
+
+
+def _parse_props(raw: str | None) -> dict:
+    """Parse JSON properties string from Neo4j into a dict."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 async def search_entities(query: str, limit: int = 20, entity_type: str | None = None) -> list[dict]:
@@ -11,43 +32,69 @@ async def search_entities(query: str, limit: int = 20, entity_type: str | None =
     try:
         async with asyncio.timeout(10):
             async with driver.session() as session:
+                limit_clause = _limit_clause(limit)
                 if query and entity_type:
                     result = await session.run(
-                        "MATCH (e) WHERE e.name CONTAINS $q AND e.type = $etype RETURN elementId(e) AS eid, e.name AS name, e.type AS type, e.description AS description LIMIT $limit",
+                        "MATCH (e) WHERE e.name CONTAINS $q AND e.type = $etype "
+                        f"RETURN elementId(e) AS eid, e.name AS name, e.type AS type, "
+                        f"e.description AS description, e.properties AS properties{limit_clause}",
                         q=query, etype=entity_type, limit=limit,
                     )
                 elif query:
                     result = await session.run(
-                        "MATCH (e) WHERE e.name CONTAINS $q RETURN elementId(e) AS eid, e.name AS name, e.type AS type, e.description AS description LIMIT $limit",
+                        "MATCH (e) WHERE e.name CONTAINS $q "
+                        f"RETURN elementId(e) AS eid, e.name AS name, e.type AS type, "
+                        f"e.description AS description, e.properties AS properties{limit_clause}",
                         q=query, limit=limit,
                     )
                 elif entity_type:
                     result = await session.run(
-                        "MATCH (e) WHERE e.type = $etype RETURN elementId(e) AS eid, e.name AS name, e.type AS type, e.description AS description LIMIT $limit",
+                        "MATCH (e) WHERE e.type = $etype "
+                        f"RETURN elementId(e) AS eid, e.name AS name, e.type AS type, "
+                        f"e.description AS description, e.properties AS properties{limit_clause}",
                         etype=entity_type, limit=limit,
                     )
                 else:
                     result = await session.run(
-                        "MATCH (e) RETURN elementId(e) AS eid, e.name AS name, e.type AS type, e.description AS description LIMIT $limit",
+                        f"MATCH (e) RETURN elementId(e) AS eid, e.name AS name, e.type AS type, "
+                        f"e.description AS description, e.properties AS properties{limit_clause}",
                         limit=limit,
                     )
                 records = await result.data()
-                return [{"id": r["eid"], "name": r.get("name") or "", "type": r.get("type") or "", "description": r.get("description") or ""} for r in records]
+                items = [
+                    {
+                        "id": r["eid"],
+                        "name": normalize_entity_name(r.get("name") or ""),
+                        "type": r.get("type") or "",
+                        "description": r.get("description") or "",
+                        "properties": _parse_props(r.get("properties")),
+                    }
+                    for r in records
+                    if is_high_quality_entity_name(r.get("name") or "")
+                ]
+                return _apply_python_limit(items, limit)
     except (asyncio.TimeoutError, Exception) as e:
         logger.error(f"search_entities error: {e}")
         return []
 
 
 async def search_entity_context(query: str, limit: int = 5) -> list[dict]:
-    """Search matching entities and return their direct relationships for answer citations."""
+    """Search matching entities, synonyms, and their direct relationships for answer citations."""
     driver = await get_neo4j_driver()
     try:
         async with asyncio.timeout(10):
             async with driver.session() as session:
-                result = await session.run(
+                limit_clause = _limit_clause(limit)
+                # 注意：不能用 f-string，否则 Cypher 的 {source: ...} 会被 Python 解析为表达式
+                cypher_query = (
                     """
+                    OPTIONAL MATCH (s:Synonym)
+                    WHERE s.synonym CONTAINS $q OR s.original CONTAINS $q
+                    WITH collect(DISTINCT s.original) + collect(DISTINCT s.synonym) AS aliases
                     MATCH (e)
                     WHERE e.name CONTAINS $q
+                       OR e.description CONTAINS $q
+                       OR e.name IN aliases
                     OPTIONAL MATCH (e)-[out]->(out_node)
                     OPTIONAL MATCH (in_node)-[in_rel]->(e)
                     RETURN
@@ -55,6 +102,7 @@ async def search_entity_context(query: str, limit: int = 5) -> list[dict]:
                         e.name AS name,
                         e.type AS type,
                         e.description AS description,
+                        e.properties AS properties,
                         collect(DISTINCT {
                             source: e.name,
                             target: out_node.name,
@@ -65,30 +113,42 @@ async def search_entity_context(query: str, limit: int = 5) -> list[dict]:
                             target: e.name,
                             relation_type: in_rel.rel_type
                         }) AS incoming
-                    LIMIT $limit
-                    """,
+                    """ + limit_clause
+                )
+                result = await session.run(
+                    cypher_query,
                     q=query,
                     limit=limit,
                 )
                 records = await result.data()
                 items = []
                 for record in records:
+                    name = record.get("name") or ""
+                    if not is_high_quality_entity_name(name):
+                        continue
                     relations = []
                     for rel in (record.get("outgoing") or []) + (record.get("incoming") or []):
-                        if rel.get("source") and rel.get("target") and rel.get("relation_type"):
+                        if (
+                            rel.get("source")
+                            and rel.get("target")
+                            and rel.get("relation_type")
+                            and is_high_quality_entity_name(rel.get("source"))
+                            and is_high_quality_entity_name(rel.get("target"))
+                        ):
                             relations.append({
-                                "source": rel["source"],
-                                "target": rel["target"],
+                                "source": normalize_entity_name(rel["source"]),
+                                "target": normalize_entity_name(rel["target"]),
                                 "relation_type": rel["relation_type"],
                             })
                     items.append({
                         "id": record["eid"],
-                        "name": record.get("name") or "",
+                        "name": normalize_entity_name(record.get("name") or ""),
                         "type": record.get("type") or "",
                         "description": record.get("description") or "",
+                        "properties": _parse_props(record.get("properties")),
                         "relations": relations,
                     })
-                return items
+                return _apply_python_limit(items, limit)
     except (asyncio.TimeoutError, Exception) as e:
         logger.error(f"search_entity_context error: {e}")
         return []
@@ -99,12 +159,26 @@ async def get_relations(limit: int = 100) -> list[dict]:
     try:
         async with asyncio.timeout(10):
             async with driver.session() as session:
+                limit_clause = _limit_clause(limit)
                 result = await session.run(
-                    "MATCH (a)-[r]->(b) RETURN elementId(a) AS source_id, a.name AS source, elementId(b) AS target_id, b.name AS target, r.rel_type AS relation_type LIMIT $limit",
+                    "MATCH (a)-[r]->(b) "
+                    f"RETURN elementId(a) AS source_id, a.name AS source, elementId(b) AS target_id, b.name AS target, r.rel_type AS relation_type{limit_clause}",
                     limit=limit,
                 )
                 records = await result.data()
-                return records
+                cleaned = []
+                for record in records:
+                    if not (
+                        is_high_quality_entity_name(record.get("source") or "")
+                        and is_high_quality_entity_name(record.get("target") or "")
+                    ):
+                        continue
+                    cleaned.append({
+                        **record,
+                        "source": normalize_entity_name(record.get("source") or ""),
+                        "target": normalize_entity_name(record.get("target") or ""),
+                    })
+                return _apply_python_limit(cleaned, limit)
     except (asyncio.TimeoutError, Exception) as e:
         logger.error(f"get_relations error: {e}")
         return []
@@ -113,6 +187,9 @@ async def get_relations(limit: int = 100) -> list[dict]:
 async def create_entity(name: str, entity_type: str, description: str = "") -> dict | None:
     driver = await get_neo4j_driver()
     try:
+        name = normalize_entity_name(name)
+        if not is_high_quality_entity_name(name):
+            return None
         async with asyncio.timeout(2):
             async with driver.session() as session:
                 props = {"name": name, "type": entity_type}
@@ -142,6 +219,9 @@ async def update_entity(entity_id: str, name: str | None = None, entity_type: st
                 set_clauses = []
                 params = {"eid": entity_id}
                 if name is not None:
+                    name = normalize_entity_name(name)
+                    if not is_high_quality_entity_name(name):
+                        return False
                     set_clauses.append("e.name = $name")
                     params["name"] = name
                 if entity_type is not None:
@@ -181,6 +261,8 @@ async def create_relation(source: str, target: str, relation_type: str, descript
     try:
         async with asyncio.timeout(2):
             async with driver.session() as session:
+                if not is_high_quality_entity_name(source) or not is_high_quality_entity_name(target):
+                    return None
                 # Neo4j 关系类型只允许 ASCII，所以统一用 RELATES，实际类型存为属性
                 props = {"rel_type": relation_type}
                 if description:
@@ -265,3 +347,47 @@ async def get_graph_stats() -> dict:
                 return {"entity_count": node_count, "relation_count": rel_count, "entity_type_count": type_count or 0}
     except (asyncio.TimeoutError, Exception):
         return {"entity_count": 0, "relation_count": 0, "entity_type_count": 0}
+
+
+async def cleanup_low_quality_entities(limit: int = 5000) -> dict:
+    """Normalize fixable fragment entities and delete unfixable low-quality entities."""
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(20):
+            async with driver.session() as session:
+                result = await session.run(
+                    "MATCH (e:Entity) RETURN elementId(e) AS eid, e.name AS name LIMIT $limit",
+                    limit=limit,
+                )
+                records = await result.data()
+                bad_ids = []
+                renamed = 0
+                for record in records:
+                    original = record.get("name") or ""
+                    normalized = normalize_entity_name(original)
+                    if not is_high_quality_entity_name(normalized):
+                        bad_ids.append(record["eid"])
+                    elif normalized != original:
+                        await session.run(
+                            "MATCH (e:Entity) WHERE elementId(e) = $eid "
+                            "SET e.name = $name, e.cleaned_from = $original",
+                            eid=record["eid"],
+                            name=normalized,
+                            original=original,
+                        )
+                        renamed += 1
+                if bad_ids:
+                    await session.run(
+                        "MATCH (e:Entity) WHERE elementId(e) IN $ids DETACH DELETE e",
+                        ids=bad_ids,
+                    )
+                return {
+                    "success": True,
+                    "checked": len(records),
+                    "deleted": len(bad_ids),
+                    "renamed": renamed,
+                    "remaining_may_exist": len(records) >= limit,
+                }
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"清理低质量图谱实体失败: {e}")
+        return {"success": False, "checked": 0, "deleted": 0, "error": str(e)}

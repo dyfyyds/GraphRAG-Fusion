@@ -64,24 +64,29 @@ function handleSend() {
 
 <style scoped>
 .chat-input-area {
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--color-border);
   padding: 16px 24px;
+  background: rgba(8, 12, 22, 0.7);
+  backdrop-filter: blur(12px);
 }
 .input-wrapper {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  max-width: 800px;
+  max-width: 860px;
   margin: 0 auto;
-  background: #f5f7fa;
-  border-radius: 12px;
+  background: var(--color-surface);
+  border-radius: 10px;
   padding: 12px 16px;
-  border: 1px solid #ebeef5;
-  transition: border-color 0.2s, background 0.2s;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xs);
+  transition: all 0.25s ease;
+  backdrop-filter: blur(8px);
 }
 .input-wrapper.focused {
-  border-color: #667eea;
-  background: #fff;
+  border-color: var(--color-primary);
+  background: var(--color-surface-solid);
+  box-shadow: 0 0 0 3px var(--color-primary-soft), 0 0 20px rgba(14, 165, 233, 0.1);
 }
 .input-wrapper textarea {
   flex: 1;
@@ -90,10 +95,14 @@ function handleSend() {
   background: transparent;
   font-size: 14px;
   font-family: inherit;
+  color: var(--color-text);
   resize: none;
   min-height: 24px;
   max-height: 120px;
   line-height: 1.5;
+}
+.input-wrapper textarea::placeholder {
+  color: var(--color-text-subtle);
 }
 .input-actions {
   display: flex;
@@ -103,20 +112,24 @@ function handleSend() {
 .send-btn {
   width: 36px;
   height: 36px;
-  background: #667eea;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
 }
 .send-btn:hover {
-  background: #5a6fd6;
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.45);
+  transform: translateY(-1px);
 }
 .send-btn.disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 .send-btn svg {
   width: 18px;
@@ -126,7 +139,7 @@ function handleSend() {
 .input-hint {
   text-align: center;
   font-size: 11px;
-  color: #c0c4cc;
+  color: var(--color-text-subtle);
   margin-top: 8px;
 }
 </style>

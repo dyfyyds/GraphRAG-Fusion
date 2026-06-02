@@ -48,7 +48,10 @@
           <li class="status-item" v-for="s in systemStatus" :key="s.name">
             <div class="label">
               <div class="status-dot" :class="s.status"></div>
-              {{ s.name }}
+              <div class="status-copy">
+                <span>{{ s.name }}</span>
+                <small v-if="s.detail">{{ s.detail }}</small>
+              </div>
             </div>
             <span class="status-badge" :class="'badge-' + s.status">{{ s.statusText }}</span>
           </li>
@@ -108,13 +111,7 @@ const statCards = computed(() => [
 const systemStatus = computed(() => {
   const raw = stats.value.system_status
   if (Array.isArray(raw)) return raw
-  return [
-    { name: 'ChromaDB 向量库', status: 'online', statusText: '正常' },
-    { name: 'Neo4j 图数据库', status: 'online', statusText: '正常' },
-    { name: 'MySQL 数据库', status: 'online', statusText: '正常' },
-    { name: 'LLM 服务 (mimo-2.5-pro)', status: 'online', statusText: '正常' },
-    { name: 'Embedding 服务', status: 'online', statusText: '正常' },
-  ]
+  return []
 })
 
 const trendDateRange = computed(() => {
@@ -126,17 +123,24 @@ function renderTrendChart() {
   if (!trendChartRef.value || !trend.value.length) return
   const chart = echarts.init(trendChartRef.value)
   chart.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(15, 20, 35, 0.9)',
+      borderColor: 'rgba(56, 189, 248, 0.2)',
+      textStyle: { color: '#e8ecf4' },
+    },
     xAxis: {
       type: 'category',
       data: trend.value.map(t => t.date),
-      axisLine: { lineStyle: { color: '#e8e8e8' } },
-      axisLabel: { color: '#909399', fontSize: 11 },
+      axisLine: { lineStyle: { color: 'rgba(56, 189, 248, 0.12)' } },
+      axisLabel: { color: '#5a6a82', fontSize: 11 },
+      axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
-      axisLabel: { color: '#909399', fontSize: 11 },
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(56, 189, 248, 0.06)' } },
+      axisLabel: { color: '#5a6a82', fontSize: 11 },
+      axisLine: { show: false },
     },
     series: [{
       data: trend.value.map(t => t.count),
@@ -144,12 +148,12 @@ function renderTrendChart() {
       smooth: true,
       symbol: 'circle',
       symbolSize: 8,
-      lineStyle: { color: '#667eea', width: 2.5 },
-      itemStyle: { color: '#667eea' },
+      lineStyle: { color: '#0ea5e9', width: 2.5 },
+      itemStyle: { color: '#0ea5e9', borderColor: '#0f1423', borderWidth: 2 },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(102,126,234,0.3)' },
-          { offset: 1, color: 'rgba(102,126,234,0)' },
+          { offset: 0, color: 'rgba(14, 165, 233, 0.25)' },
+          { offset: 1, color: 'rgba(14, 165, 233, 0)' },
         ]),
       },
     }],
@@ -160,14 +164,20 @@ function renderTrendChart() {
 function renderPieChart() {
   if (!pieChartRef.value || !docTypes.value.length) return
   const chart = echarts.init(pieChartRef.value)
-  const colors = ['#667eea', '#764ba2', '#67c23a', '#e6a23c', '#909399']
+  const colors = ['#0ea5e9', '#34d399', '#fbbf24', '#f87171', '#a78bfa']
   chart.setOption({
-    tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {d}%',
+      backgroundColor: 'rgba(15, 20, 35, 0.9)',
+      borderColor: 'rgba(56, 189, 248, 0.2)',
+      textStyle: { color: '#e8ecf4' },
+    },
     legend: {
       bottom: 0,
       itemWidth: 10,
       itemHeight: 10,
-      textStyle: { fontSize: 12, color: '#606266' },
+      textStyle: { fontSize: 12, color: '#5a6a82' },
     },
     series: [{
       type: 'pie',
@@ -175,7 +185,10 @@ function renderPieChart() {
       center: ['50%', '45%'],
       avoidLabelOverlap: false,
       label: { show: false },
-      emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+      emphasis: {
+        label: { show: true, fontSize: 14, fontWeight: 'bold', color: '#e8ecf4' },
+        itemStyle: { shadowBlur: 20, shadowColor: 'rgba(14, 165, 233, 0.3)' },
+      },
       data: docTypes.value.map((d, i) => ({
         name: d.file_type?.toUpperCase() || d.name,
         value: d.count,
@@ -202,7 +215,8 @@ onMounted(async () => {
       stats.value.system_status = health.map(svc => ({
         name: svc.name,
         status: svc.status,
-        statusText: svc.status === 'online' ? '正常' : '异常',
+        statusText: statusTextOf(svc.status),
+        detail: svc.detail || '',
       }))
     }
   } catch {}
@@ -210,6 +224,12 @@ onMounted(async () => {
   renderTrendChart()
   renderPieChart()
 })
+
+function statusTextOf(status) {
+  if (status === 'online') return '正常'
+  if (status === 'warning') return '警告'
+  return '异常'
+}
 </script>
 
 <style scoped>
@@ -221,46 +241,64 @@ onMounted(async () => {
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 24px;
 }
 .stat-card {
-  background: #fff;
-  border-radius: 10px;
-  padding: 24px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-xs);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  backdrop-filter: blur(8px);
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.03), transparent 60%);
+  pointer-events: none;
+}
+.stat-card:hover {
+  border-color: var(--color-border-glow);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
 }
 .stat-card .info h3 {
   font-size: 13px;
-  color: #909399;
-  font-weight: 400;
+  color: var(--color-text-muted);
+  font-weight: 550;
   margin-bottom: 8px;
 }
 .stat-card .info .value {
   font-size: 28px;
   font-weight: 700;
-  color: #303133;
+  color: var(--color-text);
 }
 .stat-card .info .trend {
   font-size: 12px;
   margin-top: 6px;
 }
 .trend.up {
-  color: #67c23a;
+  color: var(--color-success);
 }
 .trend.down {
-  color: #f56c6c;
+  color: var(--color-danger);
 }
 .stat-card .icon-box {
   width: 56px;
   height: 56px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
 }
 .stat-card .icon-box svg {
   width: 28px;
@@ -268,42 +306,50 @@ onMounted(async () => {
   fill: #fff;
 }
 .icon-blue {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #0ea5e9, #0369a1);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.3);
 }
 .icon-green {
-  background: linear-gradient(135deg, #67c23a, #4caf50);
+  background: linear-gradient(135deg, #34d399, #059669);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.3);
 }
 .icon-orange {
-  background: linear-gradient(135deg, #e6a23c, #f39c12);
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.3);
 }
 .icon-red {
-  background: linear-gradient(135deg, #f56c6c, #e74c3c);
+  background: linear-gradient(135deg, #f87171, #dc2626);
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.3);
 }
 
 /* Charts Row */
 .charts-row {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 24px;
 }
 .chart-card {
-  background: #fff;
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-xs);
+  min-width: 0;
+  backdrop-filter: blur(8px);
 }
 .chart-card h3 {
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 20px;
+  margin: 0 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  color: var(--color-text);
 }
 .chart-card h3 .subtitle {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   font-weight: 400;
 }
 
@@ -311,7 +357,7 @@ onMounted(async () => {
 .bottom-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Hot Questions */
@@ -324,7 +370,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 .hot-list li:last-child {
   border-bottom: none;
@@ -342,32 +388,35 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 .rank-1 {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.2);
 }
 .rank-2 {
-  background: #fdf6ec;
-  color: #e6a23c;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.2);
 }
 .rank-3 {
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.2);
 }
 .rank-n {
-  background: #f5f7fa;
-  color: #909399;
+  background: var(--color-surface-muted);
+  color: var(--color-text-subtle);
 }
 .hot-question {
   flex: 1;
   font-size: 13px;
-  color: #303133;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .hot-count {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-subtle);
   margin-left: 12px;
   flex-shrink: 0;
 }
@@ -383,7 +432,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 .status-item:last-child {
   border-bottom: none;
@@ -393,36 +442,81 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   font-size: 14px;
+  min-width: 0;
+}
+.status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.status-copy span,
+.status-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-copy span {
+  color: var(--color-text);
+}
+.status-copy small {
+  color: var(--color-text-subtle);
+  font-size: 12px;
 }
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 .status-dot.online {
-  background: #67c23a;
+  background: var(--color-success);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
 }
 .status-dot.warning {
-  background: #e6a23c;
+  background: var(--color-warning);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
 }
 .status-dot.offline {
-  background: #f56c6c;
+  background: var(--color-danger);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
 }
 .status-badge {
-  padding: 2px 10px;
-  border-radius: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
   font-size: 12px;
 }
 .badge-online {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 .badge-warning {
-  background: #fdf6ec;
-  color: #e6a23c;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
 }
 .badge-offline {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+@media (max-width: 1200px) {
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .charts-row,
+  .bottom-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .stat-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-card {
+    padding: 16px;
+  }
 }
 </style>

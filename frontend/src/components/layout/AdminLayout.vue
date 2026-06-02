@@ -8,7 +8,7 @@
         <span>RAG 智能问答</span>
       </div>
       <el-scrollbar class="sidebar-menu">
-        <el-menu :default-active="$route.path" router background-color="#001529" text-color="rgba(255,255,255,0.65)" active-text-color="#fff">
+        <el-menu :default-active="$route.path" router>
           <div class="menu-group-title">工作空间</div>
           <el-menu-item index="/admin">
             <el-icon><DataBoard /></el-icon>
@@ -112,29 +112,43 @@ function handleLogout() {
 <style scoped>
 .layout {
   height: 100vh;
+  background: var(--color-bg);
 }
 .sidebar {
-  background: #001529;
+  background: var(--color-sidebar);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-right: 1px solid var(--color-border);
+  position: relative;
+}
+.sidebar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.2), transparent 30%, transparent 70%, rgba(139, 92, 246, 0.2));
+  pointer-events: none;
 }
 .sidebar-logo {
-  height: 64px;
+  height: 68px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0 18px;
+  border-bottom: 1px solid var(--color-border);
 }
 .sidebar-logo .icon {
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 10px;
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
 }
 .sidebar-logo .icon svg {
   width: 18px;
@@ -143,48 +157,60 @@ function handleLogout() {
 }
 .sidebar-logo span {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: #fff;
+  background: linear-gradient(90deg, #fff, var(--color-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .sidebar-menu {
   flex: 1;
 }
 .sidebar-menu :deep(.el-menu) {
   border-right: none;
-  background: #001529;
+  background: transparent;
+  padding: 8px;
 }
 .sidebar-menu :deep(.el-menu-item) {
-  color: rgba(255, 255, 255, 0.65);
-  height: 44px;
-  line-height: 44px;
+  height: 42px;
+  line-height: 42px;
+  margin-bottom: 4px;
+  border-radius: 7px;
+  color: rgba(139, 153, 176, 0.85);
+  transition: all 0.2s ease;
 }
 .sidebar-menu :deep(.el-menu-item:hover) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 .sidebar-menu :deep(.el-menu-item.is-active) {
   color: #fff;
-  background: #667eea;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(139, 92, 246, 0.15));
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.15);
 }
 .menu-group-title {
-  padding: 16px 20px 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
+  padding: 16px 12px 8px;
+  font-size: 11px;
+  color: var(--color-text-subtle);
+  letter-spacing: 0.5px;
   text-transform: uppercase;
-  letter-spacing: 1px;
 }
 .main-area {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .header {
-  height: 64px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
+  height: 68px;
+  background: rgba(8, 12, 22, 0.85);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 28px;
+  backdrop-filter: blur(16px);
 }
 .header-left {
   display: flex;
@@ -193,19 +219,21 @@ function handleLogout() {
 }
 .header-left h2 {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--color-text);
   margin: 0;
 }
 .breadcrumb {
-  font-size: 13px;
-  color: #909399;
+  font-size: 12px;
+  color: var(--color-text-subtle);
 }
 .breadcrumb a {
-  color: #909399;
+  color: var(--color-text-subtle);
   text-decoration: none;
+  transition: color 0.2s;
 }
 .breadcrumb a:hover {
-  color: #667eea;
+  color: var(--color-primary);
 }
 .header-right {
   display: flex;
@@ -220,16 +248,16 @@ function handleLogout() {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
   position: relative;
 }
 .notification:hover {
-  background: #f5f7fa;
+  background: var(--color-surface-hover);
 }
 .notification svg {
   width: 20px;
   height: 20px;
-  fill: #606266;
+  fill: var(--color-text-muted);
 }
 .notification .badge {
   position: absolute;
@@ -237,9 +265,10 @@ function handleLogout() {
   right: 4px;
   width: 8px;
   height: 8px;
-  background: #f56c6c;
+  background: var(--color-danger);
   border-radius: 50%;
-  border: 2px solid #fff;
+  border: 2px solid var(--color-sidebar);
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
 }
 .user-info {
   display: flex;
@@ -247,50 +276,95 @@ function handleLogout() {
   gap: 8px;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 6px;
-  transition: background 0.2s;
+  border-radius: 8px;
+  transition: all 0.2s;
 }
 .user-info:hover {
-  background: #f5f7fa;
+  background: var(--color-surface-hover);
 }
 .user-avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 14px;
   font-weight: 600;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.3);
 }
 .user-info span {
   font-size: 14px;
-  color: #303133;
+  color: var(--color-text);
 }
 .logout-btn {
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 .logout-btn:hover {
-  background: #f5f7fa;
+  background: var(--color-danger-soft);
 }
 .logout-btn svg {
   width: 18px;
   height: 18px;
-  fill: #909399;
+  fill: var(--color-text-subtle);
+}
+.logout-btn:hover svg {
+  fill: var(--color-danger);
 }
 .content {
   flex: 1;
   overflow-y: auto;
   padding: 24px;
-  background: #f0f2f5;
+  background: var(--color-bg);
+  position: relative;
+}
+.content::before {
+  content: '';
+  position: fixed;
+  top: 68px;
+  right: 0;
+  width: calc(100% - 220px);
+  height: 200px;
+  background: radial-gradient(ellipse at 70% 0%, rgba(14, 165, 233, 0.03), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 72px !important;
+  }
+
+  .sidebar-logo span,
+  .menu-group-title,
+  .sidebar-menu :deep(.el-menu-item span) {
+    display: none;
+  }
+
+  .sidebar-logo {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar-logo .icon {
+    margin-right: 0;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  .content::before {
+    width: calc(100% - 72px);
+  }
 }
 </style>

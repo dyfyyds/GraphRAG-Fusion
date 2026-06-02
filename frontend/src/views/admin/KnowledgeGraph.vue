@@ -1,5 +1,10 @@
 <template>
   <div class="knowledge-graph-page">
+    <button class="cosmos-exit" title="退出全屏图谱" @click="exitGraph">
+      <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2z"/></svg>
+      <span>退出</span>
+    </button>
+
     <!-- Toolbar -->
     <GraphToolbar
       v-model:type-filter="typeFilter"
@@ -27,27 +32,13 @@
           </div>
         </div>
 
-        <!-- 大图谱折叠提示 -->
-        <div v-if="hiddenNodeCount > 0" class="graph-truncate-tip">
-          图谱较大，仅展示连接最密集的前 {{ MAX_RENDER_NODES }} 个实体（已折叠 {{ hiddenNodeCount }} 个）。可用搜索或类型筛选定位具体实体。
-        </div>
-
-        <!-- D3 graph container -->
-        <div ref="graphRef" class="graph-svg-container"></div>
-        <div v-if="loading" class="graph-loading">加载图谱中...</div>
-        <div v-else-if="!entities.length" class="graph-empty">
-          <div class="empty-title">暂无实体</div>
-          <div class="empty-desc">添加实体或导入文档后，图谱会显示在这里</div>
-        </div>
-
-        <!-- Color-coded legend (dynamic) -->
-        <div class="graph-legend">
-          <div class="legend-item" v-for="(color, type) in TYPE_COLORS" :key="type">
-            <div class="legend-dot" :style="{ background: color }"></div>{{ getTypeName(type) }}
-          </div>
-        </div>
-
-        <!-- Zoom controls -->
+        <SemanticCosmos
+          ref="semanticCosmosRef"
+          :entities="entities"
+          :relations="relations"
+          :selected-entity="selectedEntity"
+          @select="selectEntity"
+        />
         <div class="graph-controls">
           <div class="graph-control" @click="zoomIn" title="放大">
             <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -86,11 +77,11 @@
           <div class="panel-body">
             <ul class="entity-list">
               <li
-                v-for="entity in displayedEntities"
+                v-for="entity in entities"
                 :key="entity.id"
                 class="entity-item"
                 :class="{ active: selectedEntity?.id === entity.id }"
-                @click="selectedEntity = entity"
+                @click="selectEntity(entity)"
               >
                 <div class="entity-icon" :class="getTypeClass(entity.entity_type)">
                   {{ getTypeLabel(entity.entity_type) }}
@@ -104,9 +95,6 @@
                   <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                 </button>
               </li>
-              <li v-if="entities.length > displayedEntities.length" class="list-more-tip">
-                仅显示前 {{ displayedEntities.length }} / {{ entityCount.toLocaleString() }} 个实体，请用搜索筛选
-              </li>
             </ul>
           </div>
         </div>
@@ -119,18 +107,15 @@
           </div>
           <div class="panel-body">
             <ul class="relation-list">
-              <li v-for="(rel, idx) in displayedRelations" :key="idx" class="relation-item">
+              <li v-for="(rel, idx) in filteredRelations" :key="idx" class="relation-item">
                 <span class="rel-name">{{ getEntityName(rel.source) }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="relation-label">{{ rel.relation_type }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="rel-name">{{ getEntityName(rel.target) }}</span>
                 <button class="btn-icon btn-delete-sm" @click.stop="deleteRelation(rel)" title="删除关系">
-                  <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 19 19 17.59 13.41 12z"/></svg>
+                  <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                 </button>
-              </li>
-              <li v-if="filteredRelations.length > displayedRelations.length" class="list-more-tip">
-                仅显示前 {{ displayedRelations.length }} / {{ filteredRelations.length.toLocaleString() }} 条关系
               </li>
               <li v-if="filteredRelations.length === 0" class="relation-empty">暂无关系数据</li>
             </ul>
@@ -226,11 +211,15 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as d3 from 'd3'
+import { useRouter } from 'vue-router'
 import GraphToolbar from '../../components/graph/GraphToolbar.vue'
+import SemanticCosmos from '../../components/graph/SemanticCosmos.vue'
 import request from '../../api/request'
 import { on } from '../../utils/eventBus'
 
 const graphRef = ref()
+const semanticCosmosRef = ref()
+const router = useRouter()
 const selectedEntity = ref(null)
 const typeFilter = ref('')
 const entities = ref([])
@@ -238,11 +227,7 @@ const relations = ref([])
 const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
-const rightPanelCollapsed = ref(false)
-const hiddenNodeCount = ref(0)  // 大图谱保护：被折叠未渲染的节点数
-
-// 大图谱渲染上限：超过则只渲染连接度最高的前 N 个节点，避免浏览器卡死/崩溃
-const MAX_RENDER_NODES = 300
+const rightPanelCollapsed = ref(true)
 
 let simulation = null
 let svg = null
@@ -254,7 +239,7 @@ let highlightedNode = null
 const newEntity = ref({ name: '', entity_type: 'Product', description: '' })
 const newRelation = ref({ source: '', target: '', relation_type: '包含', description: '' })
 
-const TYPE_PALETTE = ['#409eff', '#f56c6c', '#67c23a', '#e6a23c', '#9b59b6', '#36cfc9', '#ff7a45', '#597ef7', '#73d13d', '#ff85c0', '#b37feb', '#5cdbd3', '#ffc53d', '#9254de', '#40a9ff', '#ff4d4f']
+const TYPE_PALETTE = ['#7dd3fc', '#f0abfc', '#bef264', '#fde68a', '#c4b5fd', '#5eead4', '#fb7185', '#93c5fd', '#86efac', '#f9a8d4', '#ddd6fe', '#67e8f9', '#facc15', '#a78bfa', '#38bdf8', '#f87171']
 
 const TYPE_COLORS = {}
 const TYPE_NAMES = {}
@@ -267,6 +252,10 @@ function assignTypeStyles() {
     TYPE_NAMES[t] = t
     TYPE_LABELS[t] = t[0]
   })
+}
+
+function typeDomId(type) {
+  return String(type || 'default').replace(/[^\w-]/g, '_')
 }
 
 const entityCount = computed(() => entities.value.length)
@@ -282,9 +271,6 @@ const filteredRelations = computed(() => {
   const id = selectedEntity.value.id
   return relations.value.filter(r => r.source === name || r.target === name || r.source_id === id || r.target_id === id)
 })
-
-// 右侧列表渲染上限：大数据量下避免一次渲染上千 DOM 节点导致页面卡死
-const MAX_LIST_ITEMS = 500
 
 // 预计算 名称→关系数 / 名称→实体，避免列表里逐项 O(n) 查找造成 O(n²) 卡顿
 const relationCountByName = computed(() => {
@@ -305,9 +291,6 @@ const entityByName = computed(() => {
   for (const e of entities.value) m[e.name] = e
   return m
 })
-
-const displayedEntities = computed(() => entities.value.slice(0, MAX_LIST_ITEMS))
-const displayedRelations = computed(() => filteredRelations.value.slice(0, MAX_LIST_ITEMS))
 
 function getTypeClass(type) {
   // Return CSS-safe class based on color index
@@ -343,14 +326,13 @@ async function loadGraph(query = '') {
   loading.value = true
   try {
     const [entRes, relRes] = await Promise.all([
-      request.get('/graph/entities', { params: { q: query || undefined, limit: 1000, entity_type: typeFilter.value || undefined } }),
-      request.get('/graph/relations', { params: { limit: 1000 } }),
+      request.get('/graph/entities', { params: { q: query || undefined, limit: 0, entity_type: typeFilter.value || undefined } }),
+      request.get('/graph/relations', { params: { limit: 0 } }),
     ])
     if (requestId !== loadRequestId) return
     entities.value = Array.isArray(entRes) ? entRes : (entRes.data || [])
     relations.value = Array.isArray(relRes) ? relRes : (relRes.data || [])
     assignTypeStyles()
-    renderGraph()
   } catch (err) {
     if (requestId === loadRequestId) {
       ElMessage.error('加载知识图谱失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
@@ -422,21 +404,36 @@ function renderGraph() {
     <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
   `)
 
+  defs.append('filter').attr('id','cosmicGlow').html(`
+    <feGaussianBlur stdDeviation="5" result="coloredBlur"/>
+    <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+  `)
+
   defs.append('filter').attr('id','shadow').html(`
     <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.15"/>
   `)
 
   for (const [t, c] of Object.entries(TYPE_COLORS)) {
+    const safeId = typeDomId(t)
+    const gradient = defs.append('radialGradient')
+      .attr('id', 'planet-' + safeId)
+      .attr('cx', '35%')
+      .attr('cy', '28%')
+      .attr('r', '70%')
+    gradient.append('stop').attr('offset', '0%').attr('stop-color', '#ffffff')
+    gradient.append('stop').attr('offset', '38%').attr('stop-color', c)
+    gradient.append('stop').attr('offset', '100%').attr('stop-color', '#111827')
+
     defs.append('marker')
-      .attr('id', 'arrow-' + t)
+      .attr('id', 'arrow-' + safeId)
       .attr('viewBox', '0 -5 10 10')
       .attr('refX', 28).attr('refY', 0)
       .attr('markerWidth', 8).attr('markerHeight', 8)
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', '#64748b')
-      .attr('opacity', 0.65)
+      .attr('fill', c)
+      .attr('opacity', 0.78)
   }
 
   defs.append('marker')
@@ -472,18 +469,7 @@ function renderGraph() {
     connCount[r.target] = (connCount[r.target] || 0) + 1
   }
 
-  // 大图谱保护：节点过多时只渲染连接度最高的前 N 个，避免浏览器卡死/崩溃
-  let renderEntities = entities.value
-  if (entities.value.length > MAX_RENDER_NODES) {
-    renderEntities = [...entities.value]
-      .sort((a, b) => (connCount[b.name] || 0) - (connCount[a.name] || 0))
-      .slice(0, MAX_RENDER_NODES)
-    hiddenNodeCount.value = entities.value.length - renderEntities.length
-  } else {
-    hiddenNodeCount.value = 0
-  }
-
-  const nodes = renderEntities.map(e => ({
+  const nodes = entities.value.map(e => ({
     id: e.id, name: e.name, type: e.entity_type || 'Concept',
     radius: Math.min(12 + Math.sqrt(connCount[e.name] || 0) * 4, 36),
     connections: connCount[e.name] || 0,
@@ -507,33 +493,51 @@ function renderGraph() {
   // 大图谱降级：关闭连线文字标签等高开销绘制
   const bigGraph = nodes.length > 150
 
+  const starCount = Math.min(180, Math.max(72, nodes.length * 2))
+  const stars = Array.from({ length: starCount }, (_, i) => ({
+    id: i,
+    x: ((i * 97) % Math.max(width, 1)),
+    y: ((i * 53) % Math.max(height, 1)),
+    r: 0.6 + ((i * 17) % 16) / 16,
+    opacity: 0.16 + ((i * 29) % 70) / 160,
+  }))
+
+  g.append('g')
+    .attr('class', 'cosmic-dust')
+    .selectAll('circle')
+    .data(stars)
+    .join('circle')
+    .attr('cx', d => d.x)
+    .attr('cy', d => d.y)
+    .attr('r', d => d.r)
+    .attr('fill', '#dbeafe')
+    .attr('opacity', d => d.opacity)
+
   // ---- links (paths with arrowheads) ----
   const linkGroup = g.append('g').attr('class', 'links')
   const linkPaths = linkGroup.selectAll('line').data(links).join('line')
     .attr('stroke', d => {
       const tgtNode = nodeByName.get(d.target)
-      return TYPE_COLORS[tgtNode?.type] || '#909399'
+      return TYPE_COLORS[tgtNode?.type] || '#9fb3ff'
     })
-    .attr('stroke-width', 1.4)
-    .attr('stroke-opacity', 0.42)
+    .attr('stroke-width', bigGraph ? 1 : 1.55)
+    .attr('stroke-opacity', bigGraph ? 0.34 : 0.58)
+    .attr('filter', bigGraph ? null : 'url(#glow)')
     .attr('marker-end', d => {
       const tgtNode = nodeByName.get(d.target)
-      return `url(#arrow-${tgtNode?.type || 'default'})`
+      return `url(#arrow-${typeDomId(tgtNode?.type || 'default')})`
     })
     .style('cursor', 'pointer')
 
-  // 大图谱时不渲染连线文字标签，避免大量 <text> 拖垮性能
   const linkLabelGroup = g.append('g').attr('class', 'link-labels')
-  const linkLabels = bigGraph
-    ? linkLabelGroup.selectAll('text')
-    : linkLabelGroup.selectAll('text').data(links).join('text')
-        .text(d => d.type)
-        .attr('font-size', 10)
-        .attr('fill', '#64748b')
-        .attr('text-anchor', 'middle')
-        .attr('dy', -4)
-        .style('pointer-events', 'none')
-        .style('opacity', 0.72)
+  const linkLabels = linkLabelGroup.selectAll('text').data(links).join('text')
+    .text(d => d.type)
+    .attr('font-size', 10)
+    .attr('fill', '#dbeafe')
+    .attr('text-anchor', 'middle')
+    .attr('dy', -4)
+    .style('pointer-events', 'none')
+    .style('opacity', 0.76)
 
   // ---- nodes ----
   const nodeGroup = g.append('g').attr('class', 'nodes')
@@ -562,19 +566,41 @@ function renderGraph() {
 
   nodeG.append('circle')
     .attr('class', 'node-halo')
-    .attr('r', d => d.radius + 8)
-    .attr('fill', d => (TYPE_COLORS[d.type] || '#64748b') + '14')
-    .attr('stroke', d => (TYPE_COLORS[d.type] || '#64748b') + '22')
-    .attr('stroke-width', 1)
+    .attr('r', d => d.radius + 13)
+    .attr('fill', d => (TYPE_COLORS[d.type] || '#9fb3ff') + '2b')
+    .attr('stroke', d => (TYPE_COLORS[d.type] || '#9fb3ff') + '66')
+    .attr('stroke-width', 1.2)
+    .attr('filter', 'url(#cosmicGlow)')
+    .attr('pointer-events', 'none')
+
+  nodeG.append('ellipse')
+    .attr('class', 'node-orbit')
+    .attr('rx', d => d.radius + 16)
+    .attr('ry', d => Math.max(8, d.radius * 0.45))
+    .attr('fill', 'none')
+    .attr('stroke', d => TYPE_COLORS[d.type] || '#9fb3ff')
+    .attr('stroke-width', 1.2)
+    .attr('stroke-opacity', d => d.connections > 1 ? 0.72 : 0.32)
+    .attr('transform', d => `rotate(${(d.id || d.name.length) % 2 ? -18 : 18})`)
     .attr('pointer-events', 'none')
 
   nodeG.append('circle')
     .attr('class', 'node-core')
     .attr('r', d => d.radius)
-    .attr('fill', '#ffffff')
-    .attr('stroke', d => TYPE_COLORS[d.type] || '#64748b')
-    .attr('stroke-width', 2.2)
+    .attr('fill', d => `url(#planet-${typeDomId(d.type)})`)
+    .attr('stroke', d => TYPE_COLORS[d.type] || '#9fb3ff')
+    .attr('stroke-width', 2)
+    .attr('filter', 'url(#cosmicGlow)')
     .style('transition', 'all 0.3s ease')
+
+  nodeG.append('circle')
+    .attr('class', 'node-specular')
+    .attr('cx', d => -d.radius * 0.28)
+    .attr('cy', d => -d.radius * 0.3)
+    .attr('r', d => Math.max(2.4, d.radius * 0.18))
+    .attr('fill', '#ffffff')
+    .attr('opacity', 0.74)
+    .attr('pointer-events', 'none')
 
   nodeG.append('text')
     .text(d => getTypeLabel(d.type))
@@ -582,20 +608,20 @@ function renderGraph() {
     .attr('dy', 5)
     .attr('font-size', d => Math.max(11, Math.min(16, d.radius - 4)))
     .attr('font-weight', 700)
-    .attr('fill', d => TYPE_COLORS[d.type] || '#64748b')
+    .attr('fill', '#08111f')
     .attr('pointer-events', 'none')
 
   nodeG.append('text')
     .attr('class', 'node-name')
-    .text(d => d.name.length > 8 ? d.name.slice(0, 8) + '..' : d.name)
+    .text(d => d.name)
     .attr('text-anchor', 'middle')
     .attr('dy', d => d.radius + 14)
     .attr('font-size', 11)
     .attr('font-weight', 600)
-    .attr('fill', '#334155')
+    .attr('fill', '#eaf2ff')
     .attr('paint-order', 'stroke')
-    .attr('stroke', '#fff')
-    .attr('stroke-width', 4)
+    .attr('stroke', '#07111f')
+    .attr('stroke-width', 5)
     .attr('stroke-linejoin', 'round')
     .attr('pointer-events', 'none')
 
@@ -769,9 +795,16 @@ function dragEnded(event) {
 
 function handleSearch(q) { loadGraph(q) }
 
+function selectEntity(entity) {
+  selectedEntity.value = entity
+}
+
+function exitGraph() {
+  router.push('/admin')
+}
+
 function toggleRightPanel() {
   rightPanelCollapsed.value = !rightPanelCollapsed.value
-  scheduleRender(260)
 }
 
 async function deleteEntity(entity) {
@@ -798,25 +831,16 @@ async function deleteRelation(rel) {
 }
 
 function zoomIn() {
-  if (!svg || !zoomBehavior) return
-  svg.interrupt().transition().duration(180).call(zoomBehavior.scaleBy, 1.3)
+  semanticCosmosRef.value?.zoomIn()
 }
 function zoomOut() {
-  if (!svg || !zoomBehavior) return
-  svg.interrupt().transition().duration(180).call(zoomBehavior.scaleBy, 0.7)
+  semanticCosmosRef.value?.zoomOut()
 }
 function resetZoom() {
-  if (!svg || !zoomBehavior) return
-  svg.interrupt().transition().duration(180).call(zoomBehavior.transform, d3.zoomIdentity)
+  semanticCosmosRef.value?.resetView()
 }
 function fitToView() {
-  if (!svg || !zoomBehavior || !graphRef.value) return
-  const width = graphRef.value.clientWidth
-  const height = graphRef.value.clientHeight || 500
-  svg.interrupt().transition().duration(180).call(
-    zoomBehavior.transform,
-    d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8).translate(-width / 2, -height / 2)
-  )
+  semanticCosmosRef.value?.fitView()
 }
 
 async function submitEntity() {
@@ -868,33 +892,138 @@ onUnmounted(() => {
 
 <style scoped>
 .knowledge-graph-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-  min-height: 0;
-  background: #f6f8fb;
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: block;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #000;
+}
+
+.cosmos-exit {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  z-index: 42;
+  height: 38px;
+  padding: 0 12px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(226, 246, 255, 0.92);
+  background: rgba(3, 7, 18, 0.72);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 7px;
+  cursor: pointer;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+}
+
+.cosmos-exit:hover {
+  transform: translateY(-1px);
+  background: rgba(8, 15, 30, 0.88);
+  border-color: rgba(125, 211, 252, 0.44);
+}
+
+.cosmos-exit svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.cosmos-exit span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.knowledge-graph-page :deep(.graph-toolbar) {
+  position: absolute;
+  top: 14px;
+  left: 100px;
+  z-index: 32;
+  width: min(560px, calc(100vw - 520px));
+  padding: 8px;
+  gap: 10px;
+  background: rgba(3, 7, 18, 0.7);
+  border-color: rgba(125, 211, 252, 0.18);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+}
+
+.knowledge-graph-page :deep(.toolbar-title) {
+  display: none;
+}
+
+.knowledge-graph-page :deep(.left) {
+  width: 100%;
+  gap: 8px;
+}
+
+.knowledge-graph-page :deep(.right) {
+  display: none;
+}
+
+.knowledge-graph-page :deep(.search-box),
+.knowledge-graph-page :deep(.filter-select),
+.knowledge-graph-page :deep(.btn) {
+  height: 34px;
+}
+
+.knowledge-graph-page :deep(.search-box) {
+  flex: 1;
+  width: auto;
+  background: rgba(8, 15, 30, 0.82);
+}
+
+.knowledge-graph-page :deep(.filter-select) {
+  width: 128px;
+  background: rgba(8, 15, 30, 0.82);
 }
 
 .graph-layout {
-  display: flex;
-  gap: 16px;
-  flex: 1;
+  position: absolute;
+  inset: 0;
+  display: block;
   overflow: hidden;
   min-height: 0;
-  position: relative;
 }
 
 /* Graph canvas */
 .graph-canvas {
-  flex: 1;
-  background: #fff;
-  border: 1px solid #e7eaf0;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
-  position: relative;
+  position: absolute;
+  inset: 0;
+  background: #000;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
   min-width: 0;
+}
+
+.graph-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(125, 211, 252, 0.08), transparent 30%),
+    radial-gradient(circle at 68% 42%, rgba(190, 242, 100, 0.06), transparent 30%),
+    radial-gradient(circle at 48% 78%, rgba(249, 168, 212, 0.08), transparent 32%);
+  mix-blend-mode: screen;
+  z-index: 1;
+}
+
+.graph-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.38));
+  mask-image: none;
+  z-index: 2;
 }
 
 .graph-svg-container {
@@ -902,12 +1031,10 @@ onUnmounted(() => {
   height: 100%;
   min-height: 560px;
   background:
-    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    radial-gradient(circle at 28% 22%, rgba(37, 99, 235, 0.08), transparent 32%),
-    radial-gradient(circle at 76% 72%, rgba(20, 184, 166, 0.08), transparent 30%),
-    #fbfdff;
-  background-size: 28px 28px, 28px 28px, 100% 100%, 100% 100%, auto;
+    radial-gradient(circle at center, rgba(15, 23, 42, 0.2), rgba(2, 6, 23, 0.96)),
+    #070b14;
+  position: relative;
+  z-index: 3;
 }
 
 .kg-svg {
@@ -918,19 +1045,59 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+:deep(.cosmic-dust circle) {
+  animation: starPulse 4.8s ease-in-out infinite;
+}
+
+:deep(.node-orbit) {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbitDrift 9s linear infinite;
+}
+
+:deep(.node-halo) {
+  animation: haloBreath 3.8s ease-in-out infinite;
+}
+
+:deep(.links line) {
+  stroke-dasharray: 6 12;
+  animation: lightTrace 9s linear infinite;
+}
+
+@keyframes starPulse {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.62; }
+}
+
+@keyframes orbitDrift {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+
+@keyframes haloBreath {
+  0%, 100% { opacity: 0.62; }
+  50% { opacity: 1; }
+}
+
+@keyframes lightTrace {
+  to { stroke-dashoffset: -72; }
+}
+
 .graph-tooltip {
   position: absolute;
   padding: 9px 12px;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(6, 11, 24, 0.92);
   color: #fff;
-  border-radius: 6px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 8px;
   font-size: 12px;
   line-height: 1.6;
   pointer-events: none;
   z-index: 100;
   transform: translate(-50%, -130%);
   white-space: nowrap;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.34), 0 0 28px rgba(125, 211, 252, 0.16);
+  backdrop-filter: blur(14px);
 }
 
 .graph-loading,
@@ -942,7 +1109,7 @@ onUnmounted(() => {
   justify-content: center;
   pointer-events: none;
   z-index: 5;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 13px;
 }
 
@@ -954,53 +1121,34 @@ onUnmounted(() => {
 .empty-title {
   font-size: 15px;
   font-weight: 650;
-  color: #334155;
+  color: #e2e8f0;
 }
 
 .empty-desc {
-  color: #7a8494;
-}
-
-/* 大图谱折叠提示 */
-.graph-truncate-tip {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(560px, calc(100% - 220px));
-  z-index: 11;
-  padding: 8px 14px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #92520a;
-  background: rgba(254, 243, 224, 0.96);
-  border: 1px solid #f6c97a;
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(12px);
-  text-align: center;
+  color: #94a3b8;
 }
 
 /* Stats overlay */
 .graph-stats {
   position: absolute;
   top: 16px;
-  left: 16px;
+  right: 22px;
+  left: auto;
   display: flex;
   gap: 0;
-  z-index: 10;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  z-index: 30;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  background: rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
 }
 
 .graph-stat {
-  padding: 10px 16px;
-  min-width: 82px;
-  border-right: 1px solid #eef2f7;
+  padding: 8px 14px;
+  min-width: 76px;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 .graph-stat:last-child {
@@ -1008,16 +1156,16 @@ onUnmounted(() => {
 }
 
 .graph-stat .num {
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 700;
-  color: #1f2937;
+  color: #eff6ff;
   line-height: 1.1;
 }
 
 .graph-stat .label {
   margin-top: 4px;
   font-size: 11px;
-  color: #7a8494;
+  color: rgba(255, 255, 255, 0.58);
 }
 
 /* Legend */
@@ -1029,11 +1177,11 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(8, 15, 30, 0.72);
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 8px;
   padding: 10px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(12px);
   z-index: 10;
 }
@@ -1043,9 +1191,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #475569;
-  background: #f8fafc;
-  border: 1px solid #edf2f7;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 999px;
   padding: 4px 8px;
 }
@@ -1059,54 +1207,58 @@ onUnmounted(() => {
 /* Zoom controls */
 .graph-controls {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 78px;
+  right: 22px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  z-index: 10;
+  z-index: 30;
 }
 
 .graph-control {
   width: 34px;
   height: 34px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(8, 15, 30, 0.76);
+  border: 1px solid rgba(125, 211, 252, 0.24);
   border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
   transition: background 0.2s, color 0.2s, transform 0.2s;
 }
 
 .graph-control:hover {
-  background: #eff6ff;
+  background: rgba(14, 165, 233, 0.24);
   transform: translateY(-1px);
 }
 
 .graph-control svg {
   width: 18px;
   height: 18px;
-  fill: #475569;
+  fill: #dbeafe;
 }
 
-/* Right panel */
+/* Left panel */
 .right-panel {
+  position: absolute;
+  top: 96px;
+  left: 24px;
+  right: auto;
+  bottom: 28px;
+  z-index: 36;
   width: 360px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  flex-shrink: 0;
   min-height: 0;
-  transition: width 0.24s ease, opacity 0.18s ease, transform 0.24s ease;
+  transition: opacity 0.2s ease, transform 0.24s ease;
 }
 
 .right-panel.collapsed {
-  width: 0;
   opacity: 0;
-  transform: translateX(24px);
+  transform: translateX(calc(-100% - 56px));
   pointer-events: none;
   overflow: hidden;
 }
@@ -1114,32 +1266,32 @@ onUnmounted(() => {
 .panel-toggle {
   position: absolute;
   top: 50%;
-  right: 368px;
-  z-index: 20;
+  left: 384px;
+  z-index: 38;
   width: 28px;
   height: 56px;
-  border: 1px solid #d8dee8;
-  border-right-color: #e7eaf0;
-  border-radius: 8px 0 0 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #64748b;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(125, 211, 252, 0.26);
+  border-left-color: rgba(125, 211, 252, 0.16);
+  border-radius: 0 8px 8px 0;
+  background: rgba(8, 15, 30, 0.88);
+  color: #bfdbfe;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transform: translateY(-50%);
-  transition: right 0.24s ease, background 0.2s, color 0.2s;
+  transition: left 0.24s ease, background 0.2s, color 0.2s;
 }
 
 .panel-toggle:hover {
-  background: #eff6ff;
-  color: #2563eb;
+  background: rgba(37, 99, 235, 0.28);
+  color: #ffffff;
 }
 
 .panel-toggle.collapsed {
-  right: 0;
-  border-radius: 8px 0 0 8px;
+  left: 18px;
+  border-radius: 0 8px 8px 0;
 }
 
 .panel-toggle svg {
@@ -1149,17 +1301,18 @@ onUnmounted(() => {
 }
 
 .panel-card {
-  background: #fff;
-  border: 1px solid #e7eaf0;
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(18, 25, 38, 0.04);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
   min-height: 0;
   overflow: hidden;
+  backdrop-filter: blur(16px);
 }
 
 .panel-header {
   padding: 14px 16px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1168,13 +1321,13 @@ onUnmounted(() => {
 .panel-header h3 {
   font-size: 15px;
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   margin: 0;
 }
 
 .panel-count {
   font-size: 12px;
-  color: #7a8494;
+  color: #93c5fd;
 }
 
 .panel-body {
@@ -1202,13 +1355,13 @@ onUnmounted(() => {
 }
 
 .entity-item:hover {
-  background: #f8fafc;
-  border-color: #edf2f7;
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(125, 211, 252, 0.18);
 }
 
 .entity-item.active {
-  background: #eff6ff;
-  border-color: #bfdbfe;
+  background: rgba(37, 99, 235, 0.22);
+  border-color: rgba(125, 211, 252, 0.42);
 }
 
 .entity-item:last-child {
@@ -1235,7 +1388,7 @@ onUnmounted(() => {
 .entity-info .name {
   font-size: 13px;
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1244,31 +1397,31 @@ onUnmounted(() => {
 .entity-info .type {
   margin-top: 2px;
   font-size: 11px;
-  color: #7a8494;
+  color: #94a3b8;
 }
 
 .entity-info .relations {
   margin-top: 2px;
   font-size: 11px;
-  color: #2563eb;
+  color: #7dd3fc;
 }
 
-.type-c0  { background: #ecf5ff; color: #409eff; }
-	.type-c1  { background: #fef0f0; color: #f56c6c; }
-	.type-c2  { background: #f0f9eb; color: #67c23a; }
-	.type-c3  { background: #fdf6ec; color: #e6a23c; }
-	.type-c4  { background: #f5f0ff; color: #9b59b6; }
-	.type-c5  { background: #e6fffb; color: #36cfc9; }
-	.type-c6  { background: #fff2e8; color: #ff7a45; }
-	.type-c7  { background: #f0f5ff; color: #597ef7; }
-	.type-c8  { background: #f6ffed; color: #73d13d; }
-	.type-c9  { background: #fff0f6; color: #ff85c0; }
-	.type-c10 { background: #f9f0ff; color: #b37feb; }
-	.type-c11 { background: #e6fffb; color: #5cdbd3; }
-	.type-c12 { background: #fffbe6; color: #ffc53d; }
-	.type-c13 { background: #f9f0ff; color: #9254de; }
-	.type-c14 { background: #e6f7ff; color: #40a9ff; }
-	.type-c15 { background: #fff1f0; color: #ff4d4f; }
+.type-c0  { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); }
+	.type-c1  { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
+	.type-c2  { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
+	.type-c3  { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+	.type-c4  { background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.2); }
+	.type-c5  { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; border: 1px solid rgba(45, 212, 191, 0.2); }
+	.type-c6  { background: rgba(251, 146, 60, 0.15); color: #fb923c; border: 1px solid rgba(251, 146, 60, 0.2); }
+	.type-c7  { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.2); }
+	.type-c8  { background: rgba(74, 222, 128, 0.15); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.2); }
+	.type-c9  { background: rgba(244, 114, 182, 0.15); color: #f472b6; border: 1px solid rgba(244, 114, 182, 0.2); }
+	.type-c10 { background: rgba(192, 132, 252, 0.15); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.2); }
+	.type-c11 { background: rgba(96, 165, 250, 0.15); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.2); }
+	.type-c12 { background: rgba(253, 224, 71, 0.15); color: #fde047; border: 1px solid rgba(253, 224, 71, 0.2); }
+	.type-c13 { background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.2); }
+	.type-c14 { background: rgba(56, 189, 248, 0.12); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.18); }
+	.type-c15 { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
 
 /* Relation list */
 .relation-list {
@@ -1285,13 +1438,13 @@ onUnmounted(() => {
   border: 1px solid transparent;
   border-radius: 7px;
   font-size: 13px;
-  color: #475569;
+  color: #cbd5e1;
   flex-wrap: wrap;
 }
 
 .relation-item:hover {
-  background: #f8fafc;
-  border-color: #edf2f7;
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(125, 211, 252, 0.18);
 }
 
 .relation-item:last-child {
@@ -1300,7 +1453,7 @@ onUnmounted(() => {
 
 .rel-name {
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1313,26 +1466,26 @@ onUnmounted(() => {
 }
 
 .relation-label {
-  color: #2563eb;
+  color: #7dd3fc;
   font-size: 11px;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  background: rgba(37, 99, 235, 0.22);
+  border: 1px solid rgba(125, 211, 252, 0.22);
   padding: 2px 7px;
   border-radius: 999px;
 }
 
 .relation-empty {
   text-align: center;
-  color: #7a8494;
+  color: #94a3b8;
   font-size: 13px;
   padding: 20px 0;
 }
 
 .list-more-tip {
   text-align: center;
-  color: #92520a;
-  background: #fff7ed;
-  border: 1px dashed #f6c97a;
+  color: #fde68a;
+  background: rgba(67, 43, 8, 0.62);
+  border: 1px dashed rgba(250, 204, 21, 0.32);
   border-radius: 6px;
   font-size: 12px;
   padding: 8px 10px;
@@ -1347,24 +1500,29 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(3, 7, 18, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(12px);
 }
 
 .modal {
-  background: #fff;
+  background:
+    linear-gradient(135deg, rgba(8, 15, 30, 0.96), rgba(15, 23, 42, 0.94)),
+    var(--color-surface-solid);
   border-radius: 8px;
   width: 480px;
-  border: 1px solid #e7eaf0;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  max-width: calc(100vw - 32px);
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.58), 0 0 36px rgba(14, 165, 233, 0.1);
+  overflow: hidden;
 }
 
 .modal-header {
   padding: 18px 20px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1373,7 +1531,7 @@ onUnmounted(() => {
 .modal-header h3 {
   font-size: 16px;
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   margin: 0;
 }
 
@@ -1386,7 +1544,7 @@ onUnmounted(() => {
 }
 
 .modal-close:hover {
-  fill: #475569;
+  fill: #eaf2ff;
 }
 
 .modal-body {
@@ -1404,48 +1562,59 @@ onUnmounted(() => {
 .form-group label {
   display: block;
   font-size: 13px;
-  color: #475569;
+  color: #94a3b8;
   margin-bottom: 6px;
   font-weight: 500;
 }
 
 .form-group label .required {
-  color: #f56c6c;
+  color: var(--color-danger);
 }
 
 .form-input {
   width: 100%;
   height: 36px;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s;
+  color: #eaf2ff;
+  background: rgba(8, 15, 30, 0.82);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   box-sizing: border-box;
 }
 
 .form-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .form-select {
   width: 100%;
   height: 36px;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: #475569;
-  background: #fff;
+  color: #dbeafe;
+  background: rgba(8, 15, 30, 0.82);
   outline: none;
   box-sizing: border-box;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.form-select:focus {
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .form-textarea {
   width: 100%;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1453,18 +1622,21 @@ onUnmounted(() => {
   resize: vertical;
   min-height: 60px;
   font-family: inherit;
+  color: #eaf2ff;
+  background: rgba(8, 15, 30, 0.82);
   box-sizing: border-box;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .form-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .modal-footer {
   padding: 14px 20px;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -1483,23 +1655,27 @@ onUnmounted(() => {
 }
 
 .btn-primary {
-  background: #2563eb;
-  color: #fff;
+  background: #7dd3fc;
+  color: #07111f;
+  border-color: transparent;
+  box-shadow: 0 0 14px rgba(125, 211, 252, 0.28);
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #bae6fd;
+  box-shadow: 0 0 22px rgba(125, 211, 252, 0.4);
 }
 
 .btn-default {
-  background: #fff;
-  color: #475569;
-  border-color: #d8dee8;
+  background: rgba(15, 23, 42, 0.78);
+  color: #dbeafe;
+  border-color: rgba(125, 211, 252, 0.22);
 }
 
 .btn-default:hover {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: rgba(125, 211, 252, 0.56);
+  color: #ffffff;
+  background: rgba(37, 99, 235, 0.16);
 }
 
 .btn-icon {
@@ -1517,17 +1693,17 @@ onUnmounted(() => {
 }
 
 .btn-icon:hover {
-  background: #fef0f0;
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .btn-icon svg {
   width: 16px;
   height: 16px;
-  fill: #909399;
+  fill: #94a3b8;
 }
 
 .btn-icon:hover svg {
-  fill: #f56c6c;
+  fill: #f87171;
 }
 
 .btn-delete {
@@ -1548,5 +1724,44 @@ onUnmounted(() => {
 .btn-delete-sm svg {
   width: 14px;
   height: 14px;
+}
+
+@media (max-width: 1100px) {
+  .cosmos-exit {
+    top: 10px;
+    left: 10px;
+  }
+
+  .knowledge-graph-page :deep(.graph-toolbar) {
+    top: 56px;
+    left: 10px;
+    width: calc(100vw - 20px);
+    flex-wrap: wrap;
+  }
+
+  .graph-stats {
+    display: none;
+  }
+
+  .graph-controls {
+    top: 88px;
+    right: 12px;
+  }
+
+  .right-panel {
+    top: 88px;
+    left: 12px;
+    right: auto;
+    bottom: 12px;
+    width: min(360px, calc(100vw - 48px));
+  }
+
+  .panel-toggle {
+    left: min(384px, calc(100vw - 40px));
+  }
+
+  .panel-toggle.collapsed {
+    left: 8px;
+  }
 }
 </style>
