@@ -27,9 +27,10 @@ async def test_query_calls_llm_fallback_when_no_internal_results(monkeypatch):
 
     monkeypatch.setattr(rag_module, "get_embedding_client", lambda: FakeEmbeddingClient())
     monkeypatch.setattr(rag_module, "get_llm_client", lambda: llm)
-    monkeypatch.setattr(RAGEngine, "_vector_search", lambda self, embedding, top_k=5: _async_return([]))
+    monkeypatch.setattr(rag_module, "_load_retrieval_config", lambda: _async_return(rag_module.RetrievalRuntimeConfig()))
+    monkeypatch.setattr(RAGEngine, "_vector_search", lambda self, embedding, top_k=5, **kwargs: _async_return([]))
     monkeypatch.setattr(RAGEngine, "_graph_search", lambda self, question: _async_return([]))
-    monkeypatch.setattr(RAGEngine, "_keyword_search", lambda self, question, top_k=5: _async_return([]))
+    monkeypatch.setattr(RAGEngine, "_keyword_search", lambda self, question, top_k=5, **kwargs: _async_return([]))
 
     events = [event async for event in engine.query("企业外的问题")]
 
@@ -67,9 +68,10 @@ async def test_query_uses_internal_prompt_sources_and_graph_context(monkeypatch)
 
     monkeypatch.setattr(rag_module, "get_embedding_client", lambda: FakeEmbeddingClient())
     monkeypatch.setattr(rag_module, "get_llm_client", lambda: llm)
-    monkeypatch.setattr(RAGEngine, "_vector_search", lambda self, embedding, top_k=5: _async_return(vector_result))
+    monkeypatch.setattr(rag_module, "_load_retrieval_config", lambda: _async_return(rag_module.RetrievalRuntimeConfig()))
+    monkeypatch.setattr(RAGEngine, "_vector_search", lambda self, embedding, top_k=5, **kwargs: _async_return(vector_result))
     monkeypatch.setattr(RAGEngine, "_graph_search", lambda self, question: _async_return(graph_result))
-    monkeypatch.setattr(RAGEngine, "_keyword_search", lambda self, question, top_k=5: _async_return([]))
+    monkeypatch.setattr(RAGEngine, "_keyword_search", lambda self, question, top_k=5, **kwargs: _async_return([]))
 
     events = [event async for event in engine.query("9点17打卡属于什么")]
 
@@ -137,6 +139,30 @@ def test_keyword_terms_normalize_attendance_time_query():
     assert "9:16" in terms
     assert "9:30" in terms
     assert "严重迟到" in terms
+
+
+def test_keyword_terms_expand_branch_company_procurement_query():
+    terms = _build_keyword_terms(
+        "总公司投标使用分公司的企业特别资质、业绩、设备和人员证明是否可以认可，"
+        "分公司工作人员由总公司合同签订及社保缴纳是否可以认可"
+    )
+
+    assert "总公司" in terms
+    assert "分公司" in terms
+    assert "资质证明文件" in terms
+    assert "业绩情况" in terms
+    assert "分公司不具有法人资格" in terms
+    assert "民事责任由公司承担" in terms
+    assert "招标文件中没有规定的评标标准不得作为评审的依据" in terms
+
+
+def test_keyword_terms_add_scenario_profile_terms():
+    terms = _build_keyword_terms("招标文件没有特殊要求时供应商投标资质能否认可")
+
+    assert "政府采购" in terms
+    assert "供应商条件" in terms
+    assert "资质证明文件" in terms
+    assert "第十七条" in terms
 
 
 def test_rrf_fusion_combines_same_document_chunk_across_retrievers():
@@ -229,6 +255,35 @@ def test_policy_document_keyword_match_outranks_handbook_summary():
     )
 
     assert fused[0]["document_name"] == "考勤管理制度.pdf"
+
+
+def test_branch_company_legal_basis_outranks_weak_vector_results():
+    engine = RAGEngine()
+
+    fused = engine._rrf_fusion(
+        [{
+            "source": "vector",
+            "document_id": 157,
+            "document_name": "财库〔2020〕46号 中小企业声明函.md",
+            "chunk_index": 10,
+            "content": "以上企业，不属于大企业的分支机构，不存在控股股东为大企业的情形。",
+            "distance": 0.46,
+        }],
+        [],
+        [{
+            "source": "keyword",
+            "document_id": 139,
+            "document_name": "中华人民共和国政府采购法.md",
+            "chunk_index": 5,
+            "content": "第二十三条 采购人可以要求参加政府采购的供应商提供有关资质证明文件和业绩情况。",
+            "keyword_hits": 5,
+            "keyword_score": 18,
+            "keyword_term_count": 28,
+            "matched_terms": ["供应商", "资质证明文件", "业绩情况", "采购人", "政府采购"],
+        }],
+    )
+
+    assert fused[0]["document_name"] == "中华人民共和国政府采购法.md"
 
 
 async def _async_return(value):
