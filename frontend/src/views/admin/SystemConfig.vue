@@ -187,8 +187,8 @@
           <div class="form-group">
             <label>模型名称 <span class="required">*</span></label>
             <el-select v-model="configs.EMBEDDING_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="输入或选择模型">
+              <el-option label="Qwen/Qwen3-Embedding-0.6B" value="Qwen/Qwen3-Embedding-0.6B" />
               <el-option label="BAAI/bge-m3" value="BAAI/bge-m3" />
-              <el-option label="BAAI/bge-large-zh-v1.5" value="BAAI/bge-large-zh-v1.5" />
               <el-option label="text-embedding-3-large" value="text-embedding-3-large" />
               <el-option label="text-embedding-ada-002" value="text-embedding-ada-002" />
               <el-option label="jina-embeddings-v3" value="jina-embeddings-v3" />
@@ -624,7 +624,7 @@ const DEFAULTS = {
 
 const DEFAULT_PROFILES = [
   { id: 'default-llm', name: '默认 LLM', type: 'llm', model: 'mimo-v2.5-pro', api_url: 'https://token-plan-cn.xiaomimimo.com/v1', max_tokens: DEFAULT_LLM_MAX_TOKENS, temperature: 0.2, top_p: 0.9 },
-  { id: 'default-embedding', name: '默认 Embedding', type: 'embedding', model: 'BAAI/bge-m3', api_url: 'https://api.siliconflow.cn/v1', dimension: DEFAULT_EMBEDDING_DIM },
+  { id: 'default-embedding', name: '默认 Embedding', type: 'embedding', model: 'Qwen/Qwen3-Embedding-0.6B', api_url: 'https://api.siliconflow.cn/v1', dimension: DEFAULT_EMBEDDING_DIM },
 ]
 
 // LLM tab
