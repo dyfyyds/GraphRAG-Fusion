@@ -136,7 +136,7 @@ def _safe_host(api_url: str) -> str:
     return parsed.netloc or parsed.path.split("/")[0] or "未配置地址"
 
 
-def _short_timeout(value: int | float, default: float = 3.0) -> float:
+def _short_timeout(value: int | float, default: float = 5.0) -> float:
     try:
         return max(1.0, min(float(value), default))
     except (TypeError, ValueError):

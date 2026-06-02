@@ -358,7 +358,7 @@ onMounted(loadUsers)
   top: 2px;
   width: 16px;
   height: 16px;
-  background: #fff;
+  background: var(--color-white);
   border-radius: 50%;
   transition: left 0.3s;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);

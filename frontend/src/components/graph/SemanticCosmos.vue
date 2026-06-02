@@ -189,13 +189,24 @@ const TYPE_TO_GALAXY = {
 
 const galaxyKeys = Object.keys(GALAXIES)
 const nodeObjects = new Map()
+let labelObjects = []
 const focusTarget = new THREE.Vector3(0, 0, 0)
 const cameraTarget = new THREE.Vector3(0, 0, 185)
+const labelWorldPos = new THREE.Vector3()
+const labelAnchorPos = new THREE.Vector3()
+const labelScreenPos = new THREE.Vector3()
+const cameraFocusDir = new THREE.Vector3()
+const pickWorldPos = new THREE.Vector3()
+const pickScreenPos = new THREE.Vector3()
+const pickRadiusPos = new THREE.Vector3()
+const cameraRight = new THREE.Vector3()
+const cameraUp = new THREE.Vector3()
 
 let scene
 let camera
 let renderer
 let labelRenderer
+let labelLayer
 let composer
 let controls
 let animationId = 0
@@ -632,6 +643,13 @@ function initScene() {
   labelRenderer.domElement.style.pointerEvents = 'none' // CRITICAL: Inline style to bypass any scoped CSS pointer interception!
   mountRef.value.appendChild(labelRenderer.domElement)
 
+  labelLayer = document.createElement('div')
+  labelLayer.className = 'cosmos-manual-label-layer'
+  labelLayer.style.position = 'absolute'
+  labelLayer.style.inset = '0'
+  labelLayer.style.pointerEvents = 'none'
+  mountRef.value.appendChild(labelLayer)
+
   // FIX: Attach OrbitControls directly to renderer.domElement (the WebGL canvas) so drags and scrolls are captured perfectly,
   // bypassing the overlays of CSS2DRenderer which intercept and block pointer events!
   controls = new OrbitControls(camera, renderer.domElement)
@@ -719,7 +737,11 @@ function animateCameraTo(targetPosition, targetLookAt, duration = 1.15) {
     z: targetPosition.z,
     duration,
     ease: 'power2.out',
+    onUpdate: () => controls.update(),
     onComplete: () => {
+      camera.position.copy(targetPosition)
+      controls.target.copy(targetLookAt)
+      controls.update()
       isCameraAnimating = false
     }
   })
@@ -728,7 +750,8 @@ function animateCameraTo(targetPosition, targetLookAt, duration = 1.15) {
     y: targetLookAt.y,
     z: targetLookAt.z,
     duration,
-    ease: 'power2.out'
+    ease: 'power2.out',
+    onUpdate: () => controls.update()
   })
 }
 
@@ -925,6 +948,7 @@ function createPlanet(node) {
   })
   const sphere = new THREE.Mesh(sphereGeom, sphereMat)
   sphere.userData.node = node
+  sphere.userData.pickNode = node
   group.add(sphere)
 
   // 2. Small inner core, intentionally dim so the 3D form remains readable.
@@ -937,6 +961,7 @@ function createPlanet(node) {
     depthWrite: false
   })
   const core = new THREE.Mesh(coreGeom, coreMat)
+  core.userData.pickNode = node
   group.add(core)
 
   // 3. Controlled atmospheric halo.
@@ -1027,6 +1052,7 @@ function createPlanet(node) {
     wire.rotation.x = 0.38
     wire.rotation.z = 0.72
     wire.userData.isWireShell = true
+    wire.userData.pickNode = node
     group.add(wire)
   }
 
@@ -1063,17 +1089,20 @@ function createPlanet(node) {
     group.add(createLocalDustCluster(node, radius, color))
   }
 
-  // 8. Every visible business entity gets a readable label. The stronger force layout prevents label-heavy views from collapsing.
+  // 8. Labels stay anchored to planets, but visibility is distance/importance gated.
   const label = document.createElement('div')
   label.className = 'cosmos-label'
   label.textContent = node.name
   label.style.pointerEvents = 'none'
   label.style.setProperty('--glow-color', node.color)
-  label.style.setProperty('--label-opacity', String(Math.min(0.95, 0.68 + node.weight * 0.025)))
-  const labelObj = new CSS2DObject(label)
-  labelObj.position.set(0, radius + 1.55, 0)
-  labelObj.userData.node = node
-  group.add(labelObj)
+  label.style.setProperty('--label-opacity', '0')
+  labelLayer?.appendChild(label)
+  labelObjects.push({
+    element: label,
+    node,
+    radius,
+    baseOpacity: Math.min(0.95, 0.56 + node.weight * 0.035),
+  })
 
   // 9. Add group to scene nodeGroup and save in nodeObjects map for hover/focus interactions
   if (nodeGroup) {
@@ -1310,6 +1339,9 @@ function createLocalDustCluster(node, radius, color) {
 }
 
 function clearGraphObjects() {
+  labelObjects.forEach(labelObj => labelObj.element?.remove?.())
+  labelObjects = []
+
   for (const group of [nodeGroup, linkGroup, labelGroup, flowGroup]) {
     if (!group) continue
     scene.remove(group)
@@ -1346,10 +1378,13 @@ function onCanvasClick(event) {
   const rect = renderer.domElement.getBoundingClientRect()
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-  
-  raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects(nodeGroup.children, true)
-  const node = findNodeFromHit(hits)
+
+  let node = findNodeFromScreenPoint(event, rect)
+  if (!node) {
+    raycaster.setFromCamera(pointer, camera)
+    const hits = raycaster.intersectObjects(nodeGroup.children, true)
+    node = findNodeFromHit(hits)
+  }
   
   if (node) {
     emit('select', node.raw)
@@ -1362,11 +1397,56 @@ function onCanvasClick(event) {
   }
 }
 
+function findNodeFromScreenPoint(event, rect) {
+  if (!camera) return null
+
+  cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+  let best = null
+  let bestScore = Infinity
+
+  for (const node of graphNodes.value) {
+    const group = nodeObjects.get(node.id) || nodeObjects.get(node.name)
+    if (!group) continue
+
+    group.getWorldPosition(pickWorldPos)
+    pickScreenPos.copy(pickWorldPos).project(camera)
+    if (
+      pickScreenPos.z < -1 ||
+      pickScreenPos.z > 1 ||
+      pickScreenPos.x < -1.16 ||
+      pickScreenPos.x > 1.16 ||
+      pickScreenPos.y < -1.16 ||
+      pickScreenPos.y > 1.16
+    ) {
+      continue
+    }
+
+    const cx = (pickScreenPos.x * 0.5 + 0.5) * rect.width + rect.left
+    const cy = (-pickScreenPos.y * 0.5 + 0.5) * rect.height + rect.top
+    pickRadiusPos.copy(pickWorldPos).addScaledVector(cameraRight, visualRadius(node) * 2.15)
+    pickRadiusPos.project(camera)
+    const rx = (pickRadiusPos.x * 0.5 + 0.5) * rect.width + rect.left
+    const screenRadius = Math.abs(rx - cx)
+    const threshold = THREE.MathUtils.clamp(screenRadius + 18, 24, 92)
+    const dist = Math.hypot(event.clientX - cx, event.clientY - cy)
+
+    if (dist <= threshold) {
+      const score = dist - screenRadius * 0.18
+      if (score < bestScore) {
+        bestScore = score
+        best = node
+      }
+    }
+  }
+
+  return best
+}
+
 function findNodeFromHit(hits) {
   for (const hit of hits) {
     let current = hit.object
     while (current) {
-      if (current.userData?.node) return current.userData.node
+      if (current.userData?.pickNode) return current.userData.pickNode
       current = current.parent
     }
   }
@@ -1393,16 +1473,122 @@ function focusSelected(entity) {
 }
 
 function focusNode(node) {
-  focusTarget.copy(node.position)
-  const distance = 92 + node.weight * 5
-  const targetCam = new THREE.Vector3(
-    focusTarget.x,
-    focusTarget.y,
-    focusTarget.z + distance
-  )
+  const targetObject = nodeObjects.get(node.id) || nodeObjects.get(node.name)
+  if (targetObject) {
+    targetObject.getWorldPosition(focusTarget)
+  } else {
+    focusTarget.copy(node.position)
+  }
+
+  cameraFocusDir.copy(camera.position).sub(controls.target)
+  if (cameraFocusDir.lengthSq() < 0.0001) cameraFocusDir.set(0, 0, 1)
+  cameraFocusDir.normalize()
+
+  const distance = THREE.MathUtils.clamp(58 + node.weight * 4.2, 62, 108)
+  const targetCam = focusTarget.clone().add(cameraFocusDir.multiplyScalar(distance))
   cameraTarget.copy(targetCam)
-  animateCameraTo(targetCam, focusTarget, 1.15)
+  animateCameraTo(targetCam, focusTarget.clone(), 0.95)
   controls.autoRotate = false
+}
+
+function isSelectedNode(node) {
+  const selected = props.selectedEntity
+  return !!selected && (selected.id === node.id || selected.name === node.name)
+}
+
+function isHoveredNode(node) {
+  return !!hoveredNode && (hoveredNode.id === node.id || hoveredNode.name === node.name)
+}
+
+function updateLabelVisibility() {
+  if (!camera || !renderer || !labelObjects.length) return
+
+  const maxVisible = viewMode.value === 'topology' ? 16 : 24
+  const candidates = []
+  const width = renderer.domElement.clientWidth || 1
+  const height = renderer.domElement.clientHeight || 1
+  cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+
+  for (const labelObj of labelObjects) {
+    const el = labelObj.element
+    const node = labelObj.node
+    if (!el || !node) continue
+
+    const group = nodeObjects.get(node.id) || nodeObjects.get(node.name)
+    if (group) {
+      group.getWorldPosition(labelWorldPos)
+    } else {
+      labelWorldPos.copy(node.position)
+    }
+
+    const distance = camera.position.distanceTo(labelWorldPos)
+    labelScreenPos.copy(labelWorldPos).project(camera)
+
+    const selected = isSelectedNode(node)
+    const hovered = isHoveredNode(node)
+    const sphereOnScreen =
+      labelScreenPos.z > -1 &&
+      labelScreenPos.z < 1 &&
+      labelScreenPos.x > -0.98 &&
+      labelScreenPos.x < 0.98 &&
+      labelScreenPos.y > -0.98 &&
+      labelScreenPos.y < 0.98
+
+    const priority = node.weight + node.relationCount * 0.42
+    const distanceLimit = selected || hovered
+      ? 180
+      : node.weight >= 9
+        ? 116
+        : node.relationCount >= 5
+          ? 96
+          : 78
+    const readable = sphereOnScreen && (selected || hovered || (distance < distanceLimit && priority >= 5.8))
+
+    if (readable) {
+      const sphereX = (labelScreenPos.x * 0.5 + 0.5) * width
+      const sphereY = (-labelScreenPos.y * 0.5 + 0.5) * height
+      labelAnchorPos.copy(labelWorldPos).addScaledVector(cameraRight, (labelObj.radius || visualRadius(node)) * 1.02)
+      pickRadiusPos.copy(labelAnchorPos).project(camera)
+      const radiusX = (pickRadiusPos.x * 0.5 + 0.5) * width
+      const screenRadius = Math.max(10, Math.abs(radiusX - sphereX))
+      candidates.push({
+        labelObj,
+        distance,
+        selected,
+        hovered,
+        priority,
+        x: sphereX,
+        y: sphereY - screenRadius - 4,
+        score: (selected ? 1200 : 0) + (hovered ? 800 : 0) + priority * 34 - distance,
+      })
+    } else {
+      el.style.display = 'none'
+      el.classList.remove('is-focus', 'is-hovered')
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score)
+  const visibleSet = new Set(candidates.slice(0, maxVisible).map(item => item.labelObj))
+
+  for (const item of candidates) {
+    const el = item.labelObj.element
+    if (!visibleSet.has(item.labelObj)) {
+      el.style.display = 'none'
+      el.classList.remove('is-focus', 'is-hovered')
+      continue
+    }
+
+    const distanceFade = THREE.MathUtils.clamp(1 - (item.distance - 78) / 138, 0.24, 1)
+    const opacity = item.selected || item.hovered
+      ? 1
+      : Math.min(item.labelObj.baseOpacity, distanceFade)
+    el.style.display = 'block'
+    el.style.left = `${item.x.toFixed(1)}px`
+    el.style.top = `${item.y.toFixed(1)}px`
+    el.style.setProperty('--label-opacity', opacity.toFixed(2))
+    el.classList.toggle('is-focus', item.selected)
+    el.classList.toggle('is-hovered', item.hovered)
+  }
 }
 
 // Hover Raycaster Detection inside Animation Frame
@@ -1538,6 +1724,9 @@ function animate() {
   // Real-time distance bloom flaring
   updateCameraDistanceGlow()
 
+  // Bind labels to planets while hiding distant and low-priority labels.
+  updateLabelVisibility()
+
   composer.render()
   labelRenderer.render(scene, camera)
 }
@@ -1574,6 +1763,8 @@ function disposeScene() {
   composer?.dispose?.()
   renderer?.domElement?.remove()
   labelRenderer?.domElement?.remove()
+  labelLayer?.remove()
+  labelLayer = null
   spriteTextureCache.forEach(texture => texture.dispose?.())
   spriteTextureCache.clear()
 }
@@ -1620,27 +1811,63 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   z-index: 4;
 }
 
+:deep(.cosmos-manual-label-layer) {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+
 :deep(.cosmos-label) {
   color: #ffffff;
-  font-size: clamp(10px, 0.72vw, 12px);
-  font-weight: 720;
-  line-height: 1.1;
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.18;
   white-space: nowrap;
-  opacity: var(--label-opacity, 0.72);
+  position: relative;
+  opacity: var(--label-opacity, 0);
   text-shadow: 
     0 1px 2px rgba(0, 0, 0, 0.95),
-    0 0 7px var(--glow-color),
-    0 0 16px rgba(0, 0, 0, 0.85);
-  background: rgba(2, 6, 23, 0.42);
-  border: 1px solid color-mix(in srgb, var(--glow-color) 42%, transparent);
-  border-radius: 5px;
-  padding: 3px 6px;
+    0 0 5px color-mix(in srgb, var(--glow-color) 52%, transparent),
+    0 0 14px rgba(0, 0, 0, 0.85);
+  background: rgba(2, 6, 23, 0.68);
+  border: 1px solid color-mix(in srgb, var(--glow-color) 36%, transparent);
+  border-radius: 6px;
+  padding: 4px 7px 4px;
   max-width: 132px;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none; /* FIX: Make individual labels transparent to mouse pointer clicks! */
   user-select: none;
-  backdrop-filter: blur(8px);
+  position: absolute;
+  transform: translate(-50%, -100%);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: opacity 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+:deep(.cosmos-label::after) {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -11px;
+  width: 1px;
+  height: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--glow-color) 72%, transparent), transparent);
+  transform: translateX(-50%);
+  opacity: calc(var(--label-opacity, 0) * 0.72);
+}
+
+:deep(.cosmos-label.is-focus),
+:deep(.cosmos-label.is-hovered) {
+  background: rgba(8, 15, 30, 0.86);
+  border-color: color-mix(in srgb, var(--glow-color) 70%, rgba(255, 255, 255, 0.2));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.42),
+    0 0 16px color-mix(in srgb, var(--glow-color) 28%, transparent);
 }
 
 /* ==========================================================================
@@ -1922,11 +2149,11 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   text-shadow: 0 0 6px rgba(6, 182, 212, 0.4);
 }
 
-/* 4. Right HUD: Minimalist Glowing Data Panel */
+/* 4. Node HUD: Minimalist Glowing Data Panel */
 .cosmos-right-panel {
   position: absolute;
   top: 86px;
-  right: 22px;
+  left: 24px;
   bottom: auto;
   max-height: min(62vh, 520px);
   width: 300px;
@@ -1940,7 +2167,7 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
     inset 0 1px 1px rgba(255, 255, 255, 0.05);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0;
-  transform: translateX(24px);
+  transform: translateX(-24px);
   pointer-events: none;
   box-sizing: border-box;
 }
@@ -2201,7 +2428,7 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
 
   .cosmos-right-panel {
     top: 74px;
-    right: 12px;
+    left: 12px;
     width: min(320px, calc(100vw - 24px));
   }
 

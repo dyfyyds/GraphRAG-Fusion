@@ -47,6 +47,8 @@
   --color-magenta: #e879f9;
   --color-gold: #fbbf24;
   --color-teal: #2dd4bf;
+  --color-ink: #07111f;
+  --color-white: #ffffff;
 
   /* ── Shadows ── */
   --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -59,6 +61,10 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+
+  /* ── Typography ── */
+  --font-sans: 'Fira Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Fira Code', 'SF Mono', 'Consolas', 'Menlo', monospace;
 }
 
 /* ── Global Reset ── */
@@ -76,7 +82,7 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   letter-spacing: 0;
   text-rendering: optimizeLegibility;
@@ -102,6 +108,37 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button,
+[role='button'],
+a,
+input[type='checkbox'],
+input[type='radio'],
+select {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--color-primary);
 }
 
 /* ── Scrollbar ── */
@@ -134,6 +171,16 @@ select {
   transition: all 0.2s ease;
 }
 
+.el-button,
+.el-button * {
+  cursor: pointer;
+}
+
+.el-button.is-disabled,
+.el-button.is-disabled * {
+  cursor: not-allowed;
+}
+
 .el-button--default {
   --el-button-bg-color: var(--color-surface);
   --el-button-border-color: var(--color-border);
@@ -150,7 +197,7 @@ select {
   --el-button-hover-border-color: var(--color-primary-strong);
   --el-button-active-bg-color: #0284c7;
   --el-button-active-border-color: #0284c7;
-  --el-button-text-color: #fff;
+  --el-button-text-color: var(--color-white);
   box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
 }
 
@@ -164,7 +211,7 @@ select {
   --el-button-text-color: var(--color-danger);
   --el-button-hover-bg-color: var(--color-danger);
   --el-button-hover-border-color: var(--color-danger);
-  --el-button-hover-text-color: #fff;
+  --el-button-hover-text-color: var(--color-white);
 }
 
 .el-button--success {
@@ -173,7 +220,7 @@ select {
   --el-button-text-color: var(--color-success);
   --el-button-hover-bg-color: var(--color-success);
   --el-button-hover-border-color: var(--color-success);
-  --el-button-hover-text-color: #fff;
+  --el-button-hover-text-color: var(--color-white);
 }
 
 .el-button--warning {
@@ -236,6 +283,23 @@ select {
   --el-table-border-color: var(--color-border-soft);
   --el-table-text-color: var(--color-text);
   --el-table-current-row-bg-color: var(--color-surface-hover);
+  background: transparent !important;
+  border-radius: var(--radius-md);
+}
+
+.el-table__inner-wrapper::before {
+  background-color: var(--color-border-soft) !important;
+}
+
+.el-table .cell {
+  color: inherit;
+}
+
+.el-table__fixed,
+.el-table__fixed-right,
+.el-table__fixed-header-wrapper,
+.el-table__fixed-body-wrapper {
+  background: var(--color-surface-solid) !important;
 }
 
 .el-table th.el-table__cell {
@@ -254,6 +318,7 @@ select {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 40px rgba(14, 165, 233, 0.05);
+  overflow: hidden;
 }
 
 .el-dialog__title {
@@ -273,6 +338,10 @@ select {
 .el-drawer {
   --el-drawer-bg-color: var(--color-surface-solid);
   border-left: 1px solid var(--color-border);
+}
+
+.el-drawer__body {
+  color: var(--color-text);
 }
 
 .el-drawer__title {
@@ -333,7 +402,7 @@ select {
 
 .el-pager li.is-active {
   background: var(--color-primary) !important;
-  color: #fff !important;
+  color: var(--color-white) !important;
   border-color: var(--color-primary);
 }
 
@@ -489,6 +558,48 @@ select {
 .el-card {
   --el-card-bg-color: var(--color-surface-solid);
   border-color: var(--color-border) !important;
+}
+
+.el-input-number__decrease,
+.el-input-number__increase {
+  background: var(--color-surface-muted) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-text-muted) !important;
+}
+
+.el-picker__popper,
+.el-popper.is-light {
+  background: var(--color-surface-solid) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-text) !important;
+}
+
+.el-date-table th,
+.el-date-table td {
+  color: var(--color-text-muted) !important;
+}
+
+.el-date-table td.available:hover {
+  color: var(--color-primary) !important;
+}
+
+.el-date-table td.current:not(.disabled) .el-date-table-cell__text {
+  background: var(--color-primary) !important;
+}
+
+.el-form-item__error {
+  color: var(--color-danger) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 /* ── Slider ── */

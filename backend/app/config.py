@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     LLM_API_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "mimo-v2.5-pro"
-    LLM_TIMEOUT: int = 60
+    LLM_TIMEOUT: int = 120
 
     # Embedding
     EMBEDDING_API_URL: str = ""

@@ -8,18 +8,24 @@
         <SourceCard v-for="(s, i) in message.sources.items" :key="i" :source="s" />
       </div>
       <div v-if="message.role === 'assistant'" class="feedback-row">
-        <div
+        <button
+          type="button"
           class="feedback-btn"
           :class="{ active: feedback === 'good' }"
           title="有帮助"
           @click="setFeedback('good')"
-        >&#128077;</div>
-        <div
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.17 1 6.59 7.59C6.22 7.95 6 8.45 6 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+        </button>
+        <button
+          type="button"
           class="feedback-btn"
           :class="{ active: feedback === 'bad' }"
           title="没帮助"
           @click="setFeedback('bad')"
-        >&#128078;</div>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H7c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -201,18 +207,26 @@ function setFeedback(val) {
   justify-content: center;
   cursor: pointer;
   background: var(--color-surface);
+  color: var(--color-text-subtle);
   font-size: 14px;
   transition: all 0.2s;
   user-select: none;
 }
+.feedback-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
 .feedback-btn:hover {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
+  color: var(--color-primary);
   box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
 }
 .feedback-btn.active {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
+  color: var(--color-primary);
   box-shadow: 0 0 8px rgba(14, 165, 233, 0.15);
 }
 

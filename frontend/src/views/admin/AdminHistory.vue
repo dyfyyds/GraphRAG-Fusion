@@ -58,8 +58,12 @@
         <el-table-column label="反馈" width="80">
           <template #default="{ row }">
             <div class="feedback-icons">
-              <span v-if="row.feedback === 'positive'" class="icon like">👍</span>
-              <span v-else-if="row.feedback === 'negative'" class="icon dislike">👎</span>
+              <span v-if="row.feedback === 'positive'" class="icon like" title="好评">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.17 1 6.59 7.59C6.22 7.95 6 8.45 6 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+              </span>
+              <span v-else-if="row.feedback === 'negative'" class="icon dislike" title="差评">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H7c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>
+              </span>
               <span v-else class="icon none">—</span>
             </div>
           </template>
@@ -107,8 +111,14 @@
             <div>
               <div class="label">反馈</div>
               <div class="value">
-                <span v-if="detailItem.feedback === 'positive'">👍 好评</span>
-                <span v-else-if="detailItem.feedback === 'negative'">👎 差评</span>
+                <span v-if="detailItem.feedback === 'positive'" class="feedback-value feedback-good">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.17 1 6.59 7.59C6.22 7.95 6 8.45 6 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                  好评
+                </span>
+                <span v-else-if="detailItem.feedback === 'negative'" class="feedback-value feedback-bad">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H7c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>
+                  差评
+                </span>
                 <span v-else>未评价</span>
               </div>
             </div>
@@ -352,6 +362,13 @@ onMounted(loadData)
   font-size: 12px;
 }
 
+.feedback-icons .icon svg,
+.feedback-value svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
 .feedback-icons .like {
   background: var(--color-success-soft);
   color: var(--color-success);
@@ -365,6 +382,20 @@ onMounted(loadData)
 .feedback-icons .none {
   background: var(--color-surface-muted);
   color: var(--color-text-subtle);
+}
+
+.feedback-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.feedback-good {
+  color: var(--color-success);
+}
+
+.feedback-bad {
+  color: var(--color-danger);
 }
 
 .action-btn {

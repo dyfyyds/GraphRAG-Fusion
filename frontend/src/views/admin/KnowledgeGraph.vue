@@ -1295,11 +1295,12 @@ onUnmounted(() => {
   fill: #dbeafe;
 }
 
-/* Right panel */
+/* Left panel */
 .right-panel {
   position: absolute;
   top: 96px;
-  right: 24px;
+  left: 24px;
+  right: auto;
   bottom: 28px;
   z-index: 36;
   width: 360px;
@@ -1312,7 +1313,7 @@ onUnmounted(() => {
 
 .right-panel.collapsed {
   opacity: 0;
-  transform: translateX(calc(100% + 56px));
+  transform: translateX(calc(-100% - 56px));
   pointer-events: none;
   overflow: hidden;
 }
@@ -1320,13 +1321,13 @@ onUnmounted(() => {
 .panel-toggle {
   position: absolute;
   top: 50%;
-  right: 384px;
+  left: 384px;
   z-index: 38;
   width: 28px;
   height: 56px;
   border: 1px solid rgba(125, 211, 252, 0.26);
-  border-right-color: rgba(125, 211, 252, 0.16);
-  border-radius: 8px 0 0 8px;
+  border-left-color: rgba(125, 211, 252, 0.16);
+  border-radius: 0 8px 8px 0;
   background: rgba(8, 15, 30, 0.88);
   color: #bfdbfe;
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
@@ -1335,7 +1336,7 @@ onUnmounted(() => {
   justify-content: center;
   cursor: pointer;
   transform: translateY(-50%);
-  transition: right 0.24s ease, background 0.2s, color 0.2s;
+  transition: left 0.24s ease, background 0.2s, color 0.2s;
 }
 
 .panel-toggle:hover {
@@ -1344,8 +1345,8 @@ onUnmounted(() => {
 }
 
 .panel-toggle.collapsed {
-  right: 18px;
-  border-radius: 8px 0 0 8px;
+  left: 18px;
+  border-radius: 0 8px 8px 0;
 }
 
 .panel-toggle svg {
@@ -1554,24 +1555,29 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(3, 7, 18, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(12px);
 }
 
 .modal {
-  background: #fff;
+  background:
+    linear-gradient(135deg, rgba(8, 15, 30, 0.96), rgba(15, 23, 42, 0.94)),
+    var(--color-surface-solid);
   border-radius: 8px;
   width: 480px;
-  border: 1px solid #e7eaf0;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  max-width: calc(100vw - 32px);
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.58), 0 0 36px rgba(14, 165, 233, 0.1);
+  overflow: hidden;
 }
 
 .modal-header {
   padding: 18px 20px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1580,7 +1586,7 @@ onUnmounted(() => {
 .modal-header h3 {
   font-size: 16px;
   font-weight: 650;
-  color: #1f2937;
+  color: #eaf2ff;
   margin: 0;
 }
 
@@ -1593,7 +1599,7 @@ onUnmounted(() => {
 }
 
 .modal-close:hover {
-  fill: #475569;
+  fill: #eaf2ff;
 }
 
 .modal-body {
@@ -1611,7 +1617,7 @@ onUnmounted(() => {
 .form-group label {
   display: block;
   font-size: 13px;
-  color: #475569;
+  color: #94a3b8;
   margin-bottom: 6px;
   font-weight: 500;
 }
@@ -1623,36 +1629,47 @@ onUnmounted(() => {
 .form-input {
   width: 100%;
   height: 36px;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s;
+  color: #eaf2ff;
+  background: rgba(8, 15, 30, 0.82);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   box-sizing: border-box;
 }
 
 .form-input:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .form-select {
   width: 100%;
   height: 36px;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 0 12px;
   font-size: 13px;
-  color: #475569;
-  background: #fff;
+  color: #dbeafe;
+  background: rgba(8, 15, 30, 0.82);
   outline: none;
   box-sizing: border-box;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.form-select:focus {
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .form-textarea {
   width: 100%;
-  border: 1px solid #d8dee8;
+  border: 1px solid rgba(125, 211, 252, 0.22);
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1660,18 +1677,21 @@ onUnmounted(() => {
   resize: vertical;
   min-height: 60px;
   font-family: inherit;
+  color: #eaf2ff;
+  background: rgba(8, 15, 30, 0.82);
   box-sizing: border-box;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .form-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: rgba(125, 211, 252, 0.56);
+  background: rgba(8, 15, 30, 0.96);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
 }
 
 .modal-footer {
   padding: 14px 20px;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -1690,23 +1710,27 @@ onUnmounted(() => {
 }
 
 .btn-primary {
-  background: var(--color-primary);
-  color: #fff;
+  background: #7dd3fc;
+  color: #07111f;
+  border-color: transparent;
+  box-shadow: 0 0 14px rgba(125, 211, 252, 0.28);
 }
 
 .btn-primary:hover {
-  background: var(--color-primary-strong);
+  background: #bae6fd;
+  box-shadow: 0 0 22px rgba(125, 211, 252, 0.4);
 }
 
 .btn-default {
-  background: #fff;
-  color: #475569;
-  border-color: #d8dee8;
+  background: rgba(15, 23, 42, 0.78);
+  color: #dbeafe;
+  border-color: rgba(125, 211, 252, 0.22);
 }
 
 .btn-default:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  border-color: rgba(125, 211, 252, 0.56);
+  color: #ffffff;
+  background: rgba(37, 99, 235, 0.16);
 }
 
 .btn-icon {
@@ -1724,17 +1748,17 @@ onUnmounted(() => {
 }
 
 .btn-icon:hover {
-  background: #fef0f0;
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .btn-icon svg {
   width: 16px;
   height: 16px;
-  fill: #909399;
+  fill: #94a3b8;
 }
 
 .btn-icon:hover svg {
-  fill: #f56c6c;
+  fill: #f87171;
 }
 
 .btn-delete {
@@ -1781,17 +1805,18 @@ onUnmounted(() => {
 
   .right-panel {
     top: 88px;
-    right: 12px;
+    left: 12px;
+    right: auto;
     bottom: 12px;
     width: min(360px, calc(100vw - 48px));
   }
 
   .panel-toggle {
-    right: min(384px, calc(100vw - 40px));
+    left: min(384px, calc(100vw - 40px));
   }
 
   .panel-toggle.collapsed {
-    right: 8px;
+    left: 8px;
   }
 }
 </style>

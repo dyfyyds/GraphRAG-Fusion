@@ -31,8 +31,14 @@
           <div class="history-item-footer">
             <div class="sources">
               <span v-for="(src, idx) in (item.source_names || []).slice(0, 3)" :key="idx" class="source-tag">{{ src }}</span>
-              <span v-if="item.feedback === 'positive'" class="feedback-tag feedback-good">👍 好评</span>
-              <span v-else-if="item.feedback === 'negative'" class="feedback-tag feedback-bad">👎 差评</span>
+              <span v-if="item.feedback === 'positive'" class="feedback-tag feedback-good">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.17 1 6.59 7.59C6.22 7.95 6 8.45 6 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                好评
+              </span>
+              <span v-else-if="item.feedback === 'negative'" class="feedback-tag feedback-bad">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H7c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>
+                差评
+              </span>
             </div>
             <div class="actions" @click.stop>
               <span @click="showDetail(item)">查看详情</span>
@@ -340,9 +346,18 @@ onMounted(loadMessages)
 }
 
 .feedback-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
+}
+
+.feedback-tag svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
 }
 
 .feedback-good {

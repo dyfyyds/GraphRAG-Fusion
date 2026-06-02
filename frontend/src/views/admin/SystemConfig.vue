@@ -604,7 +604,7 @@ const DEFAULTS = {
   LLM_MODEL: 'mimo-v2.5-pro',
   LLM_API_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
   LLM_MAX_TOKENS: DEFAULT_LLM_MAX_TOKENS,
-  EMBEDDING_MODEL: 'BAAI/bge-m3',
+  EMBEDDING_MODEL: 'Qwen/Qwen3-Embedding-0.6B',
   EMBEDDING_API_URL: 'https://api.siliconflow.cn/v1',
   EMBEDDING_DIM: DEFAULT_EMBEDDING_DIM,
   KG_MODEL: 'mimo-v2.5-pro',

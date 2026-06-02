@@ -108,13 +108,11 @@
                 <button
                   class="action-btn view"
                   :disabled="!['completed', 'graph_failed'].includes(row.status)"
-                  :style="!['completed', 'graph_failed'].includes(row.status) ? 'color:#c0c4cc;cursor:not-allowed' : ''"
                   @click="['completed', 'graph_failed'].includes(row.status) && viewChunks(row)"
                 >预览</button>
                 <button
                   class="action-btn reparse"
                   :disabled="row.status === 'parsing' || row.status === 'building_graph'"
-                  :style="(row.status === 'parsing' || row.status === 'building_graph') ? 'color:#c0c4cc;cursor:not-allowed' : ''"
                   @click="(row.status !== 'parsing' && row.status !== 'building_graph') && reparseDoc(row)"
                 >{{ row.status === 'pending' ? '解析' : '重解析' }}</button>
                 <button class="action-btn delete" @click="deleteDoc(row)">删除</button>
@@ -122,7 +120,7 @@
             </td>
           </tr>
           <tr v-if="paginatedData.length === 0">
-            <td colspan="8" style="text-align: center; color: #909399; padding: 40px">暂无数据</td>
+            <td colspan="8" class="empty-cell">暂无数据</td>
           </tr>
         </tbody>
       </table>
@@ -769,6 +767,12 @@ tr:hover {
   background: transparent;
   transition: all 0.2s;
 }
+
+.action-btn:disabled {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .action-btn.view {
   color: var(--color-primary);
 }
@@ -786,6 +790,12 @@ tr:hover {
 }
 .action-btn.delete:hover {
   background: var(--color-danger-soft);
+}
+
+.empty-cell {
+  text-align: center;
+  color: var(--color-text-subtle);
+  padding: 40px;
 }
 
 /* Pagination */
