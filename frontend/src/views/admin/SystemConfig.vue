@@ -39,24 +39,9 @@
         </div>
         <div class="config-row">
           <div class="form-group">
-            <label>模型名称 <span class="required">*</span></label>
-            <el-select v-model="configs.LLM_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="输入或选择模型">
-              <el-option label="mimo-v2.5-pro" value="mimo-v2.5-pro" />
-              <el-option label="gpt-4o" value="gpt-4o" />
-              <el-option label="gpt-4-turbo" value="gpt-4-turbo" />
-              <el-option label="claude-3-opus" value="claude-3-opus" />
-              <el-option label="claude-3.5-sonnet" value="claude-3.5-sonnet" />
-              <el-option label="deepseek-v3" value="deepseek-v3" />
-              <el-option label="qwen-max" value="qwen-max" />
-              <el-option label="glm-4-plus" value="glm-4-plus" />
-            </el-select>
-          </div>
-          <div class="form-group">
             <label>API Base URL <span class="required">*</span></label>
             <el-input v-model="configs.LLM_API_URL" placeholder="例如: https://api.openai.com/v1" />
           </div>
-        </div>
-        <div class="config-row">
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
             <div class="api-key-field">
@@ -75,7 +60,31 @@
                 {{ llmApiKeyEditing ? '取消' : '修改' }}
               </el-button>
             </div>
-            <div class="form-tip">API Key 将单独保存到当前模型配置，切换卡片时会使用对应配置的 Key。</div>
+            <div class="form-tip">获取模型使用当前页面输入的 Key；如果地址未变化，也可使用后台已保存的脱敏 Key。</div>
+          </div>
+        </div>
+        <div class="config-row">
+          <div class="form-group model-select-group">
+            <div class="model-field-header">
+              <label>模型名称 <span class="required">*</span></label>
+              <div class="fetch-models-row">
+                <span v-if="llmFetchedModels.length > 0" class="fetch-count">已获取 {{ llmFetchedModels.length }} 个</span>
+                <el-button
+                  class="fetch-models-button"
+                  type="primary"
+                  :loading="llmFetchingModels"
+                  :disabled="!canFetchLlmModels"
+                  @click="fetchModels('llm')"
+                >
+                  <el-icon><Search /></el-icon>
+                  <span>{{ llmFetchingModels ? '获取中' : '获取模型' }}</span>
+                </el-button>
+              </div>
+            </div>
+            <el-select v-model="configs.LLM_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="获取后选择，或直接输入模型名称">
+              <el-option v-for="m in llmModelOptions" :key="m" :label="m" :value="m" />
+            </el-select>
+            <div class="form-tip">按当前页面的 API Base URL 和 API Key 获取；获取成功后会自动带出模型，仍支持手动输入。</div>
           </div>
           <div class="form-group">
             <label>Max Tokens</label>
@@ -107,11 +116,7 @@
           <div class="form-group">
             <label>抽取模型</label>
             <el-select v-model="configs.KG_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="默认使用 LLM 模型">
-              <el-option label="mimo-v2.5-pro" value="mimo-v2.5-pro" />
-              <el-option label="gpt-4o" value="gpt-4o" />
-              <el-option label="claude-3.5-sonnet" value="claude-3.5-sonnet" />
-              <el-option label="deepseek-v3" value="deepseek-v3" />
-              <el-option label="qwen-max" value="qwen-max" />
+              <el-option v-for="m in llmModelOptions" :key="m" :label="m" :value="m" />
             </el-select>
           </div>
           <div class="form-group">
@@ -143,7 +148,7 @@
       </div>
       <aside class="model-profile-panel">
         <div class="panel-header">
-          <h3>已保存模型</h3>
+          <h3>模型配置</h3>
           <div class="panel-actions">
             <el-button size="small" type="primary" @click="saveCurrentProfile('llm')">保存当前</el-button>
           </div>
@@ -153,13 +158,32 @@
             v-for="profile in llmProfiles"
             :key="profile.id || profile.name + profile.model"
             class="profile-item"
-            :class="{ active: isActiveProfile(profile, 'llm') }"
+            :class="{ active: isActiveProfile(profile, 'llm'), enabled: isEnabledProfile(profile, 'llm'), draft: isDraftProfile(profile) }"
             @click="applyProfile(profile)"
           >
             <div class="profile-item-accent"></div>
             <div class="profile-item-content">
-              <div class="profile-name">{{ profile.name }}</div>
-              <div class="profile-model">使用模型：{{ profile.model }}</div>
+              <div class="profile-name">
+                <span>{{ profileDisplayName(profile) }}</span>
+                <el-tag v-if="isDraftProfile(profile)" size="small" type="warning" effect="plain">未保存</el-tag>
+              </div>
+              <div class="profile-model">使用模型：{{ profileDisplayModel(profile) }}</div>
+            </div>
+            <div class="profile-item-actions">
+              <el-button
+                size="small"
+                :type="isEnabledProfile(profile, 'llm') ? 'success' : 'primary'"
+                :plain="!isEnabledProfile(profile, 'llm')"
+                :disabled="isEnabledProfile(profile, 'llm') || (isDraftProfile(profile) && isActiveProfile(profile, 'llm'))"
+                class="profile-use-button"
+                @click.stop="applyProfile(profile)"
+              >
+                <el-icon><Check /></el-icon>
+                <span>{{ profileActionLabel(profile, 'llm') }}</span>
+              </el-button>
+              <el-button size="small" type="danger" link @click.stop="deleteProfile(profile)" title="删除">
+                <el-icon><Delete /></el-icon>
+              </el-button>
             </div>
           </div>
           <div v-if="llmProfiles.length === 0" class="empty-profile">暂无保存的 LLM 模型</div>
@@ -185,22 +209,9 @@
         </div>
         <div class="config-row">
           <div class="form-group">
-            <label>模型名称 <span class="required">*</span></label>
-            <el-select v-model="configs.EMBEDDING_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="输入或选择模型">
-              <el-option label="Qwen/Qwen3-Embedding-0.6B" value="Qwen/Qwen3-Embedding-0.6B" />
-              <el-option label="BAAI/bge-m3" value="BAAI/bge-m3" />
-              <el-option label="text-embedding-3-large" value="text-embedding-3-large" />
-              <el-option label="text-embedding-ada-002" value="text-embedding-ada-002" />
-              <el-option label="jina-embeddings-v3" value="jina-embeddings-v3" />
-              <el-option label="gte-Qwen2-7B-instruct" value="gte-Qwen2-7B-instruct" />
-            </el-select>
+            <label>API Base URL <span class="required">*</span></label>
+            <el-input v-model="configs.EMBEDDING_API_URL" placeholder="例如: https://api.siliconflow.cn/v1" />
           </div>
-          <div class="form-group">
-            <label>向量维度</label>
-            <el-input-number v-model="embeddingDim" :min="128" :max="4096" :step="128" style="width: 100%" />
-          </div>
-        </div>
-        <div class="config-row">
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
             <div class="api-key-field">
@@ -219,11 +230,35 @@
                 {{ embeddingApiKeyEditing ? '取消' : '修改' }}
               </el-button>
             </div>
-            <div class="form-tip">API Key 将单独保存到当前模型配置，切换卡片时会使用对应配置的 Key。</div>
+            <div class="form-tip">获取模型使用当前页面输入的 Key；如果地址未变化，也可使用后台已保存的脱敏 Key。</div>
+          </div>
+        </div>
+        <div class="config-row">
+          <div class="form-group model-select-group">
+            <div class="model-field-header">
+              <label>模型名称 <span class="required">*</span></label>
+              <div class="fetch-models-row">
+                <span v-if="embeddingFetchedModels.length > 0" class="fetch-count">已获取 {{ embeddingFetchedModels.length }} 个</span>
+                <el-button
+                  class="fetch-models-button"
+                  type="primary"
+                  :loading="embeddingFetchingModels"
+                  :disabled="!canFetchEmbeddingModels"
+                  @click="fetchModels('embedding')"
+                >
+                  <el-icon><Search /></el-icon>
+                  <span>{{ embeddingFetchingModels ? '获取中' : '获取模型' }}</span>
+                </el-button>
+              </div>
+            </div>
+            <el-select v-model="configs.EMBEDDING_MODEL" style="width: 100%" filterable allow-create default-first-option placeholder="获取后选择，或直接输入模型名称">
+              <el-option v-for="m in embeddingModelOptions" :key="m" :label="m" :value="m" />
+            </el-select>
+            <div class="form-tip">按当前页面的 API Base URL 和 API Key 获取；获取成功后会自动带出模型，仍支持手动输入。</div>
           </div>
           <div class="form-group">
-            <label>API Base URL <span class="required">*</span></label>
-            <el-input v-model="configs.EMBEDDING_API_URL" placeholder="例如: https://api.siliconflow.cn/v1" />
+            <label>向量维度</label>
+            <el-input-number v-model="embeddingDim" :min="128" :max="4096" :step="128" style="width: 100%" />
           </div>
         </div>
       </div>
@@ -259,7 +294,7 @@
       </div>
       <aside class="model-profile-panel">
         <div class="panel-header">
-          <h3>已保存模型</h3>
+          <h3>模型配置</h3>
           <div class="panel-actions">
             <el-button size="small" type="primary" @click="saveCurrentProfile('embedding')">保存当前</el-button>
           </div>
@@ -269,13 +304,32 @@
             v-for="profile in embeddingProfiles"
             :key="profile.id || profile.name + profile.model"
             class="profile-item"
-            :class="{ active: isActiveProfile(profile, 'embedding') }"
+            :class="{ active: isActiveProfile(profile, 'embedding'), enabled: isEnabledProfile(profile, 'embedding'), draft: isDraftProfile(profile) }"
             @click="applyProfile(profile)"
           >
             <div class="profile-item-accent"></div>
             <div class="profile-item-content">
-              <div class="profile-name">{{ profile.name }}</div>
-              <div class="profile-model">使用模型：{{ profile.model }}</div>
+              <div class="profile-name">
+                <span>{{ profileDisplayName(profile) }}</span>
+                <el-tag v-if="isDraftProfile(profile)" size="small" type="warning" effect="plain">未保存</el-tag>
+              </div>
+              <div class="profile-model">使用模型：{{ profileDisplayModel(profile) }}</div>
+            </div>
+            <div class="profile-item-actions">
+              <el-button
+                size="small"
+                :type="isEnabledProfile(profile, 'embedding') ? 'success' : 'primary'"
+                :plain="!isEnabledProfile(profile, 'embedding')"
+                :disabled="isEnabledProfile(profile, 'embedding') || (isDraftProfile(profile) && isActiveProfile(profile, 'embedding'))"
+                class="profile-use-button"
+                @click.stop="applyProfile(profile)"
+              >
+                <el-icon><Check /></el-icon>
+                <span>{{ profileActionLabel(profile, 'embedding') }}</span>
+              </el-button>
+              <el-button size="small" type="danger" link @click.stop="deleteProfile(profile)" title="删除">
+                <el-icon><Delete /></el-icon>
+              </el-button>
             </div>
           </div>
           <div v-if="embeddingProfiles.length === 0" class="empty-profile">暂无保存的 Embedding 模型</div>
@@ -535,7 +589,7 @@ import {
   ElSwitch,
   ElTag,
 } from 'element-plus'
-import { Check, Connection, Cpu, Document, FolderOpened, Monitor, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Check, Connection, Cpu, Delete, Document, FolderOpened, Monitor, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import request from '../../api/request'
 
 const activeTab = ref('llm')
@@ -556,11 +610,23 @@ const modelProfiles = ref([])
 const profileApiKeyConfigured = reactive({})
 const activeLlmProfileId = ref('')
 const activeEmbeddingProfileId = ref('')
+const enabledLlmProfileId = ref('')
+const enabledEmbeddingProfileId = ref('')
 const llmProfileName = ref('默认 LLM')
 const embeddingProfileName = ref('默认 Embedding')
 
+// 模型获取状态
+const llmFetchingModels = ref(false)
+const embeddingFetchingModels = ref(false)
+const llmFetchedModels = ref([])
+const embeddingFetchedModels = ref([])
+
 const llmProfiles = computed(() => modelProfiles.value.filter(p => p.type === 'llm'))
 const embeddingProfiles = computed(() => modelProfiles.value.filter(p => p.type === 'embedding'))
+const canFetchLlmModels = computed(() => Boolean(configs.LLM_API_URL))
+const canFetchEmbeddingModels = computed(() => Boolean(configs.EMBEDDING_API_URL))
+const llmModelOptions = computed(() => fetchedModelOptions(llmFetchedModels.value, configs.LLM_MODEL))
+const embeddingModelOptions = computed(() => fetchedModelOptions(embeddingFetchedModels.value, configs.EMBEDDING_MODEL))
 
 function startApiKeyEdit(type) {
   if (type === 'llm') {
@@ -593,9 +659,49 @@ const tabs = [
   { label: '系统状态', name: 'status', icon: Monitor },
 ]
 
+async function fetchModels(type) {
+  const apiUrl = type === 'llm' ? configs.LLM_API_URL : configs.EMBEDDING_API_URL
+  const apiKey = (type === 'llm' ? llmApiKey.value : embeddingApiKey.value).trim()
+  const fetching = type === 'llm' ? llmFetchingModels : embeddingFetchingModels
+  const fetched = type === 'llm' ? llmFetchedModels : embeddingFetchedModels
+  const useSavedKey = !apiKey && canUseSavedFetchKey(type)
+
+  if (!apiUrl) {
+    ElMessage.warning('请先填写 API Base URL')
+    return
+  }
+  fetching.value = true
+  try {
+    const result = await request.post('/config/fetch-models', {
+      api_url: apiUrl,
+      api_key: apiKey,
+      model_type: type,
+      profile_id: type === 'llm' ? activeLlmProfileId.value : activeEmbeddingProfileId.value,
+      use_saved_key: useSavedKey,
+    })
+    if (result.error) {
+      ElMessage.warning(result.error)
+      fetched.value = []
+    } else {
+      fetched.value = result.models || []
+      if (fetched.value.length === 0) {
+        ElMessage.info('未获取到可用模型，请手动输入模型名称')
+      } else {
+        adoptFetchedModel(type, fetched.value)
+        ElMessage.success(`已获取 ${fetched.value.length} 个可用模型，已填入模型选择器`)
+      }
+    }
+  } catch (error) {
+    ElMessage.error(`获取模型列表失败：${getErrorMessage(error)}`)
+    fetched.value = []
+  } finally {
+    fetching.value = false
+  }
+}
+
 const activeTabLabel = computed(() => tabs.find(tab => tab.name === activeTab.value)?.label || '')
-const llmApiKeyReady = computed(() => hasActiveProfileApiKey('llm') || Boolean(llmApiKey.value))
-const embeddingApiKeyReady = computed(() => hasActiveProfileApiKey('embedding') || Boolean(embeddingApiKey.value))
+const llmApiKeyReady = computed(() => hasActiveProfileApiKey('llm') || hasEnabledProfileApiKey('llm') || Boolean(llmApiKey.value))
+const embeddingApiKeyReady = computed(() => hasActiveProfileApiKey('embedding') || hasEnabledProfileApiKey('embedding') || Boolean(embeddingApiKey.value))
 const llmApiKeyStatusText = computed(() => {
   if (!activeLlmProfileId.value) return '新配置需填写 API Key'
   return hasActiveProfileApiKey('llm') ? '当前配置已保存 API Key' : '当前配置未设置 API Key'
@@ -638,6 +744,56 @@ const DEFAULT_PROFILES = [
   { id: 'default-embedding', name: '默认 Embedding', type: 'embedding', model: 'Qwen/Qwen3-Embedding-0.6B', api_url: 'https://api.siliconflow.cn/v1', dimension: DEFAULT_EMBEDDING_DIM },
 ]
 
+function fetchedModelOptions(fetched, current) {
+  const fetchedModels = fetched || []
+  return [...new Set(fetchedModels.filter(Boolean))]
+}
+
+function hasModelFetchApiKey(type) {
+  const apiKey = type === 'llm' ? llmApiKey.value : embeddingApiKey.value
+  return Boolean(apiKey.trim() || canUseSavedFetchKey(type))
+}
+
+function canUseSavedFetchKey(type) {
+  return hasActiveProfileApiKey(type) && !isActiveProfileUrlChanged(type)
+}
+
+function adoptFetchedModel(type, models) {
+  const nextModel = models[0]
+  if (!nextModel) return
+
+  if (type === 'llm') {
+    if (!configs.LLM_MODEL || !models.includes(configs.LLM_MODEL)) {
+      configs.LLM_MODEL = nextModel
+    }
+    if (!configs.KG_MODEL || !models.includes(configs.KG_MODEL)) {
+      configs.KG_MODEL = configs.LLM_MODEL
+    }
+    return
+  }
+
+  if (!configs.EMBEDDING_MODEL || !models.includes(configs.EMBEDDING_MODEL)) {
+    configs.EMBEDDING_MODEL = nextModel
+  }
+}
+
+function normalizeApiUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '')
+}
+
+function currentActiveProfile(type) {
+  const activeId = type === 'llm' ? activeLlmProfileId.value : activeEmbeddingProfileId.value
+  const profiles = type === 'llm' ? llmProfiles.value : embeddingProfiles.value
+  return profiles.find(profile => profileKey(profile) === activeId)
+}
+
+function isActiveProfileUrlChanged(type) {
+  const profile = currentActiveProfile(type)
+  if (!profile) return false
+  const currentUrl = type === 'llm' ? configs.LLM_API_URL : configs.EMBEDDING_API_URL
+  return normalizeApiUrl(profile.api_url) !== normalizeApiUrl(currentUrl)
+}
+
 // LLM tab
 const temperature = ref(0.2)
 const topP = ref(0.9)
@@ -677,6 +833,8 @@ function applyDefaults() {
   embeddingProfileName.value = '默认 Embedding'
   activeLlmProfileId.value = 'default-llm'
   activeEmbeddingProfileId.value = 'default-embedding'
+  enabledLlmProfileId.value = 'default-llm'
+  enabledEmbeddingProfileId.value = 'default-embedding'
   topK.value = 5
   similarityThreshold.value = 0.70
   wVec.value = 0.7
@@ -835,14 +993,18 @@ function parseBackendConfig(cfgList) {
 
   const currentLlmProfile = llmProfiles.value.find(p => p.model === configs.LLM_MODEL && p.api_url === configs.LLM_API_URL) || llmProfiles.value[0]
   if (currentLlmProfile) {
-    activeLlmProfileId.value = ensureProfileId(currentLlmProfile)
+    const currentLlmId = ensureProfileId(currentLlmProfile)
+    activeLlmProfileId.value = currentLlmId
+    enabledLlmProfileId.value = currentLlmId
     llmProfileName.value = currentLlmProfile.name || configs.LLM_MODEL || 'LLM 配置'
     llmApiKeyMasked.value = hasActiveProfileApiKey('llm')
   }
 
   const currentEmbeddingProfile = embeddingProfiles.value.find(p => p.model === configs.EMBEDDING_MODEL && p.api_url === configs.EMBEDDING_API_URL) || embeddingProfiles.value[0]
   if (currentEmbeddingProfile) {
-    activeEmbeddingProfileId.value = ensureProfileId(currentEmbeddingProfile)
+    const currentEmbeddingId = ensureProfileId(currentEmbeddingProfile)
+    activeEmbeddingProfileId.value = currentEmbeddingId
+    enabledEmbeddingProfileId.value = currentEmbeddingId
     embeddingProfileName.value = currentEmbeddingProfile.name || configs.EMBEDDING_MODEL || 'Embedding 配置'
     embeddingApiKeyMasked.value = hasActiveProfileApiKey('embedding')
   }
@@ -873,6 +1035,15 @@ function profileApiKeyKey(type, profileId) {
 
 function hasActiveProfileApiKey(type) {
   const profileId = type === 'llm' ? activeLlmProfileId.value : activeEmbeddingProfileId.value
+  return hasProfileApiKey(type, profileId)
+}
+
+function hasEnabledProfileApiKey(type) {
+  const profileId = type === 'llm' ? enabledLlmProfileId.value : enabledEmbeddingProfileId.value
+  return hasProfileApiKey(type, profileId)
+}
+
+function hasProfileApiKey(type, profileId) {
   const key = profileApiKeyKey(type, profileId)
   return Boolean(key && profileApiKeyConfigured[key])
 }
@@ -886,6 +1057,30 @@ function profileKey(profile) {
   return profile.id || `${profile.type}:${profile.model}:${profile.api_url}`
 }
 
+function isDraftProfile(profile) {
+  return Boolean(profile?.draft)
+}
+
+function profileDisplayName(profile) {
+  if (isDraftProfile(profile) && isActiveProfile(profile, profile.type)) {
+    return (profile.type === 'llm' ? llmProfileName.value : embeddingProfileName.value).trim() || profile.name || '新的模型配置'
+  }
+  return profile.name || '未命名配置'
+}
+
+function profileDisplayModel(profile) {
+  if (isDraftProfile(profile) && isActiveProfile(profile, profile.type)) {
+    const currentModel = profile.type === 'llm' ? configs.LLM_MODEL : configs.EMBEDDING_MODEL
+    return currentModel || '待填写模型'
+  }
+  return profile.model || '待填写模型'
+}
+
+function profileActionLabel(profile, type) {
+  if (isDraftProfile(profile) && isActiveProfile(profile, type)) return '编辑中'
+  return isEnabledProfile(profile, type) ? '已启用' : '启用'
+}
+
 function ensureProfileId(profile) {
   if (!profile.id) profile.id = createProfileId(profile.type)
   return profile.id
@@ -894,6 +1089,11 @@ function ensureProfileId(profile) {
 function isActiveProfile(profile, type) {
   const activeId = type === 'llm' ? activeLlmProfileId.value : activeEmbeddingProfileId.value
   return Boolean(activeId) && profileKey(profile) === activeId
+}
+
+function isEnabledProfile(profile, type) {
+  const enabledId = type === 'llm' ? enabledLlmProfileId.value : enabledEmbeddingProfileId.value
+  return Boolean(enabledId) && profileKey(profile) === enabledId
 }
 
 function upsertProfile(profile) {
@@ -920,8 +1120,8 @@ function buildCurrentProfile(type) {
       id: activeLlmProfileId.value || '',
       name,
       type: 'llm',
-      model: configs.LLM_MODEL || DEFAULTS.LLM_MODEL,
-      api_url: configs.LLM_API_URL || DEFAULTS.LLM_API_URL,
+      model: configs.LLM_MODEL,
+      api_url: configs.LLM_API_URL,
       max_tokens: configs.LLM_MAX_TOKENS || DEFAULTS.LLM_MAX_TOKENS,
       temperature: temperature.value,
       top_p: topP.value,
@@ -937,8 +1137,8 @@ function buildCurrentProfile(type) {
     id: activeEmbeddingProfileId.value || '',
     name,
     type: 'embedding',
-    model: configs.EMBEDDING_MODEL || DEFAULTS.EMBEDDING_MODEL,
-    api_url: configs.EMBEDDING_API_URL || DEFAULTS.EMBEDDING_API_URL,
+    model: configs.EMBEDDING_MODEL,
+    api_url: configs.EMBEDDING_API_URL,
     dimension: embeddingDim.value,
   }
 }
@@ -950,45 +1150,77 @@ function syncCurrentProfile(type) {
 }
 
 async function deleteProfile(profile) {
+  if (isDraftProfile(profile)) {
+    const key = profileKey(profile)
+    modelProfiles.value = modelProfiles.value.filter(p => profileKey(p) !== key)
+    if (profile.type === 'llm' && activeLlmProfileId.value === key) startNewProfile('llm', { createCard: false })
+    if (profile.type === 'embedding' && activeEmbeddingProfileId.value === key) startNewProfile('embedding', { createCard: false })
+    ElMessage.info('已移除未保存的模型配置')
+    return
+  }
+
   const previousProfiles = modelProfiles.value.map(p => ({ ...p }))
   const previousLlmId = activeLlmProfileId.value
   const previousEmbeddingId = activeEmbeddingProfileId.value
+  const previousEnabledLlmId = enabledLlmProfileId.value
+  const previousEnabledEmbeddingId = enabledEmbeddingProfileId.value
   const key = profileKey(profile)
   modelProfiles.value = modelProfiles.value.filter(p => {
     return profileKey(p) !== key
   })
-  if (profile.type === 'llm' && activeLlmProfileId.value === key) startNewProfile('llm')
-  if (profile.type === 'embedding' && activeEmbeddingProfileId.value === key) startNewProfile('embedding')
+  if (profile.type === 'llm' && activeLlmProfileId.value === key) startNewProfile('llm', { createCard: false })
+  if (profile.type === 'embedding' && activeEmbeddingProfileId.value === key) startNewProfile('embedding', { createCard: false })
+  if (profile.type === 'llm' && enabledLlmProfileId.value === key) enabledLlmProfileId.value = ''
+  if (profile.type === 'embedding' && enabledEmbeddingProfileId.value === key) enabledEmbeddingProfileId.value = ''
   const saved = await persistProfiles('模型配置删除失败')
   if (!saved) {
     modelProfiles.value = previousProfiles
     activeLlmProfileId.value = previousLlmId
     activeEmbeddingProfileId.value = previousEmbeddingId
+    enabledLlmProfileId.value = previousEnabledLlmId
+    enabledEmbeddingProfileId.value = previousEnabledEmbeddingId
   }
 }
 
-function startNewProfile(type) {
+function startNewProfile(type, options = {}) {
+  const { createCard = true } = options
+  const draftId = createCard ? createProfileId(type) : ''
+
   if (type === 'llm') {
-    activeLlmProfileId.value = ''
+    activeLlmProfileId.value = draftId
     llmApiKey.value = ''
     llmApiKeyMasked.value = false
     llmApiKeyEditing.value = true
     llmProfileName.value = '新的 LLM 配置'
-    configs.LLM_MODEL = DEFAULTS.LLM_MODEL
-    configs.LLM_API_URL = DEFAULTS.LLM_API_URL
+    configs.LLM_MODEL = ''
+    configs.LLM_API_URL = ''
     configs.LLM_MAX_TOKENS = DEFAULTS.LLM_MAX_TOKENS
-    configs.KG_MODEL = DEFAULTS.KG_MODEL
+    configs.KG_MODEL = ''
+    llmFetchedModels.value = []
     temperature.value = 0.2
     topP.value = 0.9
   } else {
-    activeEmbeddingProfileId.value = ''
+    activeEmbeddingProfileId.value = draftId
     embeddingApiKey.value = ''
     embeddingApiKeyMasked.value = false
     embeddingApiKeyEditing.value = true
     embeddingProfileName.value = '新的 Embedding 配置'
-    configs.EMBEDDING_MODEL = DEFAULTS.EMBEDDING_MODEL
-    configs.EMBEDDING_API_URL = DEFAULTS.EMBEDDING_API_URL
+    configs.EMBEDDING_MODEL = ''
+    configs.EMBEDDING_API_URL = ''
+    embeddingFetchedModels.value = []
     embeddingDim.value = DEFAULTS.EMBEDDING_DIM
+  }
+
+  if (createCard) {
+    modelProfiles.value.unshift({
+      id: draftId,
+      name: type === 'llm' ? llmProfileName.value : embeddingProfileName.value,
+      type,
+      model: '',
+      api_url: '',
+      draft: true,
+    })
+    ElMessage.success(type === 'llm' ? '已在右侧新增 LLM 草稿卡片' : '已在右侧新增 Embedding 草稿卡片')
   }
 }
 
@@ -996,13 +1228,31 @@ async function saveCurrentProfile(type) {
   const previousProfiles = modelProfiles.value.map(p => ({ ...p }))
   const previousLlmId = activeLlmProfileId.value
   const previousEmbeddingId = activeEmbeddingProfileId.value
+  const previousEnabledLlmId = enabledLlmProfileId.value
+  const previousEnabledEmbeddingId = enabledEmbeddingProfileId.value
   const previousKeyStatus = { ...profileApiKeyConfigured }
-  const isCreating = type === 'llm' ? !activeLlmProfileId.value : !activeEmbeddingProfileId.value
+  const isCreating = type === 'llm'
+    ? !activeLlmProfileId.value || isDraftProfile(currentActiveProfile('llm'))
+    : !activeEmbeddingProfileId.value || isDraftProfile(currentActiveProfile('embedding'))
+  const apiKeyValue = type === 'llm' ? llmApiKey.value.trim() : embeddingApiKey.value.trim()
+
+  if (type === 'llm' && (!configs.LLM_MODEL || !configs.LLM_API_URL)) {
+    ElMessage.warning('请补全 LLM 模型名称和 API Base URL')
+    return
+  }
+  if (type === 'embedding' && (!configs.EMBEDDING_MODEL || !configs.EMBEDDING_API_URL)) {
+    ElMessage.warning('请补全 Embedding 模型名称和 API Base URL')
+    return
+  }
+
+  if (!apiKeyValue && isActiveProfileUrlChanged(type)) {
+    ElMessage.warning('API 地址已不同于当前保存卡片，请填写该地址对应的新 API Key')
+    return
+  }
 
   const profile = syncCurrentProfile(type)
   if (!profile) return
 
-  const apiKeyValue = type === 'llm' ? llmApiKey.value.trim() : embeddingApiKey.value.trim()
   const apiKeyConfigured = profileApiKeyConfigured[profileApiKeyKey(type, profile.id)]
   if (!apiKeyConfigured && !apiKeyValue) {
     ElMessage.warning(type === 'llm' ? '请填写当前 LLM 配置的 API Key' : '请填写当前 Embedding 配置的 API Key')
@@ -1032,6 +1282,8 @@ async function saveCurrentProfile(type) {
     modelProfiles.value = previousProfiles
     activeLlmProfileId.value = previousLlmId
     activeEmbeddingProfileId.value = previousEmbeddingId
+    enabledLlmProfileId.value = previousEnabledLlmId
+    enabledEmbeddingProfileId.value = previousEnabledEmbeddingId
     for (const key of Object.keys(profileApiKeyConfigured)) delete profileApiKeyConfigured[key]
     Object.assign(profileApiKeyConfigured, previousKeyStatus)
     ElMessage.error(`${isCreating ? '新建配置失败' : '模型配置保存失败'}：${getErrorMessage(error, '请检查后端服务')}`)
@@ -1064,13 +1316,17 @@ async function persistProfiles(failurePrefix = '模型保存失败') {
 }
 
 async function persistProfilesRaw() {
-  await request.put('/config/model_profiles', { config_value: JSON.stringify(modelProfiles.value) })
+  const persistedProfiles = modelProfiles.value
+    .filter(profile => !isDraftProfile(profile))
+    .map(({ draft, ...profile }) => profile)
+  await request.put('/config/model_profiles', { config_value: JSON.stringify(persistedProfiles) })
 }
 
 function applyProfile(profile) {
   const profileId = ensureProfileId(profile)
   if (profile.type === 'llm') {
     activeLlmProfileId.value = profileId
+    if (!isDraftProfile(profile)) enabledLlmProfileId.value = profileId
     llmApiKey.value = ''
     llmApiKeyMasked.value = hasActiveProfileApiKey('llm')
     llmApiKeyEditing.value = false
@@ -1083,6 +1339,7 @@ function applyProfile(profile) {
     if (profile.top_p != null) topP.value = Number(profile.top_p)
   } else if (profile.type === 'embedding') {
     activeEmbeddingProfileId.value = profileId
+    if (!isDraftProfile(profile)) enabledEmbeddingProfileId.value = profileId
     embeddingApiKey.value = ''
     embeddingApiKeyMasked.value = hasActiveProfileApiKey('embedding')
     embeddingApiKeyEditing.value = false
@@ -1135,6 +1392,8 @@ async function saveConfig() {
   const previousProfiles = modelProfiles.value.map(p => ({ ...p }))
   const previousLlmId = activeLlmProfileId.value
   const previousEmbeddingId = activeEmbeddingProfileId.value
+  const previousEnabledLlmId = enabledLlmProfileId.value
+  const previousEnabledEmbeddingId = enabledEmbeddingProfileId.value
   const previousKeyStatus = { ...profileApiKeyConfigured }
   const payloads = []
   let llmProfile = null
@@ -1147,6 +1406,10 @@ async function saveConfig() {
   if (activeTab.value === 'llm') {
     if (!configs.LLM_MODEL || !configs.LLM_API_URL) {
       ElMessage.warning('请补全 LLM 模型名称和 API Base URL')
+      return
+    }
+    if (!llmApiKey.value.trim() && isActiveProfileUrlChanged('llm')) {
+      ElMessage.warning('API 地址已不同于当前 LLM 卡片，请填写该地址对应的新 API Key')
       return
     }
     llmProfile = syncCurrentProfile('llm')
@@ -1186,6 +1449,10 @@ async function saveConfig() {
   } else if (activeTab.value === 'embedding') {
     if (!configs.EMBEDDING_MODEL || !configs.EMBEDDING_API_URL) {
       ElMessage.warning('请补全 Embedding 模型名称和 API Base URL')
+      return
+    }
+    if (!embeddingApiKey.value.trim() && isActiveProfileUrlChanged('embedding')) {
+      ElMessage.warning('API 地址已不同于当前 Embedding 卡片，请填写该地址对应的新 API Key')
       return
     }
     embeddingProfile = syncCurrentProfile('embedding')
@@ -1279,11 +1546,15 @@ async function saveConfig() {
       embeddingApiKey.value = ''
       embeddingApiKeyEditing.value = false
     }
+    if (llmProfile) enabledLlmProfileId.value = llmProfile.id
+    if (embeddingProfile) enabledEmbeddingProfileId.value = embeddingProfile.id
     ElMessage.success('配置已保存')
   } catch (error) {
     modelProfiles.value = previousProfiles
     activeLlmProfileId.value = previousLlmId
     activeEmbeddingProfileId.value = previousEmbeddingId
+    enabledLlmProfileId.value = previousEnabledLlmId
+    enabledEmbeddingProfileId.value = previousEnabledEmbeddingId
     for (const key of Object.keys(profileApiKeyConfigured)) delete profileApiKeyConfigured[key]
     Object.assign(profileApiKeyConfigured, previousKeyStatus)
     ElMessage.error(`保存失败：${getErrorMessage(error, '请检查登录状态、网络或后端服务')}`)
@@ -1486,6 +1757,7 @@ function resetConfig() {
   cursor: pointer;
   transition: all 0.25s;
   overflow: hidden;
+  position: relative;
 }
 
 .profile-item:hover {
@@ -1496,8 +1768,44 @@ function resetConfig() {
 
 .profile-item.active {
   border-color: #7dd3fc;
-  background: rgba(125, 211, 252, 0.12);
-  box-shadow: 0 0 18px rgba(125, 211, 252, 0.18);
+  background: rgba(125, 211, 252, 0.15);
+  box-shadow: 0 0 20px rgba(125, 211, 252, 0.25), inset 0 0 12px rgba(125, 211, 252, 0.06);
+}
+
+.profile-item.active .profile-item-accent {
+  background: #7dd3fc;
+  box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
+}
+
+.profile-item.active .profile-name {
+  color: #7dd3fc;
+}
+
+.profile-item.enabled {
+  border-color: rgba(52, 211, 153, 0.48);
+}
+
+.profile-item.enabled:not(.active) {
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.profile-item.enabled .profile-item-accent {
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+}
+
+.profile-item.enabled .profile-name {
+  color: #86efac;
+}
+
+.profile-item.draft {
+  border-style: dashed;
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(251, 191, 36, 0.07);
+}
+
+.profile-item.draft .profile-item-accent {
+  background: #fbbf24;
 }
 
 .profile-item-accent {
@@ -1513,6 +1821,9 @@ function resetConfig() {
 }
 
 .profile-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 700;
   color: #eaf2ff;
@@ -1674,6 +1985,22 @@ function resetConfig() {
   font-size: 11px;
   color: #94a3b8;
   margin-top: 5px;
+}
+
+.model-select-group {
+  min-width: 0;
+}
+
+.model-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.model-field-header label {
+  margin-bottom: 0;
 }
 
 .slider-label {
@@ -1844,6 +2171,72 @@ function resetConfig() {
   border-color: #7dd3fc;
 }
 
+.fetch-models-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: max-content;
+}
+
+.fetch-models-button {
+  min-width: 96px;
+  font-weight: 700;
+}
+
+.fetch-count {
+  font-size: 13px;
+  color: #34d399;
+  font-weight: 600;
+}
+
+.profile-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  flex-shrink: 0;
+  opacity: 1;
+}
+
+.profile-use-button {
+  min-width: 74px;
+  border-radius: 7px;
+  font-weight: 800;
+}
+
+.profile-item:not(.active) .profile-use-button {
+  border-color: rgba(125, 211, 252, 0.45);
+  background: rgba(125, 211, 252, 0.12);
+  color: #7dd3fc;
+}
+
+.profile-item:not(.active) .profile-use-button:hover {
+  border-color: #7dd3fc;
+  background: rgba(125, 211, 252, 0.22);
+  color: #eaf2ff;
+  box-shadow: 0 0 14px rgba(125, 211, 252, 0.18);
+}
+
+.profile-item.enabled .profile-use-button.is-disabled {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.18);
+  color: #86efac;
+  opacity: 1;
+  cursor: default;
+}
+
+.profile-item.draft .profile-use-button.is-disabled {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  opacity: 1;
+}
+
+.profile-item-actions .el-button {
+  font-size: 13px;
+}
+
 @media (max-width: 1100px) {
   .model-config-card {
     grid-template-columns: 1fr;
@@ -1872,6 +2265,16 @@ function resetConfig() {
   .api-key-field {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .model-field-header,
+  .fetch-models-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fetch-models-row {
+    min-width: 0;
   }
 
   .footer-actions {

@@ -10,8 +10,8 @@
       v-model:type-filter="typeFilter"
       :entity-types="dynamicEntityTypes"
       @search="handleSearch"
-      @add-entity="showAddEntity = true"
-      @add-relation="showAddRelation = true"
+      @add-entity="openCreateEntity"
+      @add-relation="openCreateRelation"
     />
 
     <div class="graph-layout">
@@ -119,12 +119,16 @@
         <div class="panel-card">
           <div class="panel-header">
             <h3>实体列表</h3>
-            <span class="panel-count">共 {{ entityCount.toLocaleString() }} 个</span>
+            <span class="panel-count">{{ filteredEntityList.length.toLocaleString() }} / {{ entityCount.toLocaleString() }}</span>
+          </div>
+          <div class="panel-search">
+            <svg viewBox="0 0 24 24"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l4.45 4.45-1.41 1.41-4.45-4.45A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+            <input v-model="entityListQuery" type="text" placeholder="搜索实体名称、类型或描述">
           </div>
           <div class="panel-body">
             <ul class="entity-list">
               <li
-                v-for="entity in entities"
+                v-for="entity in filteredEntityList"
                 :key="entity.id"
                 class="entity-item"
                 :class="{ active: selectedEntity?.id === entity.id }"
@@ -138,10 +142,16 @@
                   <div class="type">类型: {{ getTypeName(entity.entity_type) }}</div>
                   <div class="relations">{{ getEntityRelationCount(entity.id) }} 个关系</div>
                 </div>
-                <button class="btn-icon btn-delete" @click.stop="deleteEntity(entity)" title="删除实体">
-                  <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                </button>
+                <div class="item-actions">
+                  <button class="btn-icon btn-edit" @click.stop="openEditEntity(entity)" title="修改实体">
+                    <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm19.71-11.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 2-1.8z"/></svg>
+                  </button>
+                  <button class="btn-icon btn-delete" @click.stop="deleteEntity(entity)" title="删除实体">
+                    <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                  </button>
+                </div>
               </li>
+              <li v-if="filteredEntityList.length === 0" class="relation-empty">暂无匹配实体</li>
             </ul>
           </div>
         </div>
@@ -150,33 +160,42 @@
         <div class="panel-card">
           <div class="panel-header">
             <h3>关系列表</h3>
-            <span class="panel-count">{{ selectedEntity ? '选中实体的关系' : '全部关系' }}</span>
+            <span class="panel-count">{{ filteredRelationList.length.toLocaleString() }} 个</span>
+          </div>
+          <div class="panel-search">
+            <svg viewBox="0 0 24 24"><path d="M9.5 3a6.5 6.5 0 0 1 5.2 10.4l4.45 4.45-1.41 1.41-4.45-4.45A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+            <input v-model="relationListQuery" type="text" placeholder="搜索起点、终点、关系类型">
           </div>
           <div class="panel-body">
             <ul class="relation-list">
-              <li v-for="(rel, idx) in filteredRelations" :key="idx" class="relation-item">
+              <li v-for="(rel, idx) in filteredRelationList" :key="relationKey(rel, idx)" class="relation-item">
                 <span class="rel-name">{{ getEntityName(rel.source) }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="relation-label">{{ rel.relation_type }}</span>
                 <span class="relation-arrow">→</span>
                 <span class="rel-name">{{ getEntityName(rel.target) }}</span>
-                <button class="btn-icon btn-delete-sm" @click.stop="deleteRelation(rel)" title="删除关系">
-                  <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                </button>
+                <div class="item-actions relation-actions">
+                  <button class="btn-icon btn-edit-sm" @click.stop="openEditRelation(rel)" title="修改关系">
+                    <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm19.71-11.04a1 1 0 0 0 0-1.41l-2.5-2.5a1 1 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 2-1.8z"/></svg>
+                  </button>
+                  <button class="btn-icon btn-delete-sm" @click.stop="deleteRelation(rel)" title="删除关系">
+                    <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                  </button>
+                </div>
               </li>
-              <li v-if="filteredRelations.length === 0" class="relation-empty">暂无关系数据</li>
+              <li v-if="filteredRelationList.length === 0" class="relation-empty">暂无匹配关系</li>
             </ul>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Add Entity Modal -->
-    <div v-if="showAddEntity" class="modal-overlay" @click.self="showAddEntity = false">
+    <!-- Entity Modal -->
+    <div v-if="showAddEntity" class="modal-overlay" @click.self="closeEntityModal">
       <div class="modal">
         <div class="modal-header">
-          <h3>添加实体</h3>
-          <svg class="modal-close" viewBox="0 0 24 24" @click="showAddEntity = false">
+          <h3>{{ editingEntityId ? '修改实体' : '添加实体' }}</h3>
+          <svg class="modal-close" viewBox="0 0 24 24" @click="closeEntityModal">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
           </svg>
         </div>
@@ -187,10 +206,11 @@
           </div>
           <div class="form-group">
             <label>实体类型 <span class="required">*</span></label>
-            <select v-model="newEntity.entity_type" class="form-select">
+            <input v-model="newEntity.entity_type" class="form-input" list="entity-type-options" type="text" placeholder="请输入或选择实体类型">
+            <datalist id="entity-type-options">
               <option v-for="t in dynamicEntityTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
-              <option v-if="dynamicEntityTypes.length === 0" value="Concept">概念</option>
-            </select>
+              <option value="概念">概念</option>
+            </datalist>
           </div>
           <div class="form-group">
             <label>描述</label>
@@ -198,40 +218,40 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-default" @click="showAddEntity = false">取消</button>
-          <button class="btn btn-primary" @click="submitEntity">确定</button>
+          <button class="btn btn-default" @click="closeEntityModal">取消</button>
+          <button class="btn btn-primary" @click="submitEntity">{{ editingEntityId ? '保存修改' : '确定添加' }}</button>
         </div>
       </div>
     </div>
 
-    <!-- Add Relation Modal -->
-    <div v-if="showAddRelation" class="modal-overlay" @click.self="showAddRelation = false">
+    <!-- Relation Modal -->
+    <div v-if="showAddRelation" class="modal-overlay" @click.self="closeRelationModal">
       <div class="modal">
         <div class="modal-header">
-          <h3>添加关系</h3>
-          <svg class="modal-close" viewBox="0 0 24 24" @click="showAddRelation = false">
+          <h3>{{ editingRelationOriginal ? '修改关系' : '添加关系' }}</h3>
+          <svg class="modal-close" viewBox="0 0 24 24" @click="closeRelationModal">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
           </svg>
         </div>
         <div class="modal-body">
           <div class="form-group">
             <label>起始实体 <span class="required">*</span></label>
-            <select v-model="newRelation.source" class="form-select">
+            <input v-model="newRelation.source" class="form-input" list="relation-entity-options" type="text" placeholder="请输入或选择起始实体">
+            <datalist id="relation-entity-options">
               <option v-for="e in entities" :key="e.id" :value="e.name">{{ e.name }}</option>
-            </select>
+            </datalist>
           </div>
           <div class="form-group">
             <label>关系类型 <span class="required">*</span></label>
-            <select v-model="newRelation.relation_type" class="form-select">
+            <input v-model="newRelation.relation_type" class="form-input" list="relation-type-options" type="text" placeholder="请输入或选择关系类型">
+            <datalist id="relation-type-options">
               <option v-for="t in allRelationTypes" :key="t.type" :value="t.type">{{ t.type }} ({{ t.count }})</option>
-              <option v-if="allRelationTypes.length === 0" value="关联">关联</option>
-            </select>
+              <option value="关联">关联</option>
+            </datalist>
           </div>
           <div class="form-group">
             <label>目标实体 <span class="required">*</span></label>
-            <select v-model="newRelation.target" class="form-select">
-              <option v-for="e in entities" :key="e.id" :value="e.name">{{ e.name }}</option>
-            </select>
+            <input v-model="newRelation.target" class="form-input" list="relation-entity-options" type="text" placeholder="请输入或选择目标实体">
           </div>
           <div class="form-group">
             <label>描述</label>
@@ -239,8 +259,8 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-default" @click="showAddRelation = false">取消</button>
-          <button class="btn btn-primary" @click="submitRelation">确定</button>
+          <button class="btn btn-default" @click="closeRelationModal">取消</button>
+          <button class="btn btn-primary" @click="submitRelation">{{ editingRelationOriginal ? '保存修改' : '确定添加' }}</button>
         </div>
       </div>
     </div>
@@ -267,7 +287,11 @@ const relations = ref([])
 const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
-const rightPanelCollapsed = ref(true)
+const rightPanelCollapsed = ref(false)
+const editingEntityId = ref('')
+const editingRelationOriginal = ref(null)
+const entityListQuery = ref('')
+const relationListQuery = ref('')
 
 // --- Entity Type & Relation Type Filter State ---
 const activeEntityTypes = ref(new Set())
@@ -373,8 +397,8 @@ let renderTimer = null
 let loadRequestId = 0
 let highlightedNode = null
 
-const newEntity = ref({ name: '', entity_type: 'Product', description: '' })
-const newRelation = ref({ source: '', target: '', relation_type: '包含', description: '' })
+const newEntity = ref({ name: '', entity_type: '概念', description: '' })
+const newRelation = ref({ source: '', target: '', relation_type: '关联', description: '' })
 
 const TYPE_PALETTE = ['#7dd3fc', '#f0abfc', '#bef264', '#fde68a', '#c4b5fd', '#5eead4', '#fb7185', '#93c5fd', '#86efac', '#f9a8d4', '#ddd6fe', '#67e8f9', '#facc15', '#a78bfa', '#38bdf8', '#f87171']
 
@@ -418,6 +442,32 @@ const filteredRelations = computed(() => {
   const name = selectedEntity.value.name
   const id = selectedEntity.value.id
   return relations.value.filter(r => r.source === name || r.target === name || r.source_id === id || r.target_id === id)
+})
+
+const filteredEntityList = computed(() => {
+  const query = normalizeListQuery(entityListQuery.value)
+  if (!query) return entities.value
+  return entities.value.filter(e => {
+    return [
+      e.name,
+      e.entity_type,
+      e.description,
+    ].some(value => normalizeListQuery(value).includes(query))
+  })
+})
+
+const filteredRelationList = computed(() => {
+  const query = normalizeListQuery(relationListQuery.value)
+  const list = filteredRelations.value
+  if (!query) return list
+  return list.filter(r => {
+    return [
+      r.source,
+      r.target,
+      r.relation_type,
+      r.description,
+    ].some(value => normalizeListQuery(value).includes(query))
+  })
 })
 
 // 预计算 名称→关系数 / 名称→实体，避免列表里逐项 O(n) 查找造成 O(n²) 卡顿
@@ -467,6 +517,82 @@ function getEntityRelationCount(entityId) {
   const entity = entityById.value[entityId]
   if (!entity) return 0
   return relationCountByName.value[entity.name] || 0
+}
+
+function normalizeListQuery(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function relationKey(rel, idx = '') {
+  return `${rel.source || ''}::${rel.relation_type || ''}::${rel.target || ''}::${idx}`
+}
+
+function createDefaultEntityForm() {
+  return {
+    name: '',
+    entity_type: dynamicEntityTypes.value[0]?.value || '概念',
+    description: '',
+  }
+}
+
+function createDefaultRelationForm() {
+  const firstEntity = selectedEntity.value || entities.value[0] || null
+  const fallbackTarget = entities.value.find(e => e.name !== firstEntity?.name) || firstEntity
+  return {
+    source: firstEntity?.name || '',
+    target: fallbackTarget?.name || '',
+    relation_type: allRelationTypes.value[0]?.type || '关联',
+    description: '',
+  }
+}
+
+function openCreateEntity() {
+  editingEntityId.value = ''
+  newEntity.value = createDefaultEntityForm()
+  showAddEntity.value = true
+}
+
+function openEditEntity(entity) {
+  editingEntityId.value = entity.id
+  newEntity.value = {
+    name: entity.name || '',
+    entity_type: entity.entity_type || '概念',
+    description: entity.description || '',
+  }
+  showAddEntity.value = true
+}
+
+function closeEntityModal() {
+  showAddEntity.value = false
+  editingEntityId.value = ''
+  newEntity.value = createDefaultEntityForm()
+}
+
+function openCreateRelation() {
+  editingRelationOriginal.value = null
+  newRelation.value = createDefaultRelationForm()
+  showAddRelation.value = true
+}
+
+function openEditRelation(rel) {
+  editingRelationOriginal.value = {
+    source: rel.source,
+    target: rel.target,
+    relation_type: rel.relation_type,
+  }
+  newRelation.value = {
+    source: rel.source || '',
+    target: rel.target || '',
+    relation_type: rel.relation_type || '关联',
+    description: rel.description || '',
+  }
+  showAddRelation.value = true
+}
+
+function closeRelationModal() {
+  showAddRelation.value = false
+  editingRelationOriginal.value = null
+  newRelation.value = createDefaultRelationForm()
 }
 
 async function loadGraph(query = '') {
@@ -968,7 +1094,7 @@ async function deleteEntity(entity) {
     await request.delete(`/graph/entities/${entity.id}`)
     ElMessage.success('实体已删除')
     if (selectedEntity.value?.id === entity.id) selectedEntity.value = null
-    loadGraph()
+    await loadGraph()
   } catch (err) {
     ElMessage.error('删除失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
   }
@@ -977,9 +1103,9 @@ async function deleteEntity(entity) {
 async function deleteRelation(rel) {
   if (!confirm(`确定删除关系「${rel.source} → ${rel.relation_type} → ${rel.target}」？`)) return
   try {
-    await request.delete('/graph/relations', { params: { source: rel.source, target: rel.target, relation_type: rel.relation_type } })
+    await request.delete('/graph/relations', { data: { source: rel.source, target: rel.target, relation_type: rel.relation_type } })
     ElMessage.success('关系已删除')
-    loadGraph()
+    await loadGraph()
   } catch (err) {
     ElMessage.error('删除失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
   }
@@ -999,26 +1125,62 @@ function fitToView() {
 }
 
 async function submitEntity() {
+  const payload = {
+    name: newEntity.value.name.trim(),
+    entity_type: newEntity.value.entity_type.trim(),
+    description: newEntity.value.description.trim(),
+  }
+  if (!payload.name || !payload.entity_type) {
+    ElMessage.warning('请填写实体名称和实体类型')
+    return
+  }
   try {
-    await request.post('/graph/entities', newEntity.value)
-    ElMessage.success('实体创建成功')
-    showAddEntity.value = false
-    newEntity.value = { name: '', entity_type: 'Product', description: '' }
-    loadGraph()
+    if (editingEntityId.value) {
+      await request.put(`/graph/entities/${editingEntityId.value}`, payload)
+      ElMessage.success('实体修改成功')
+    } else {
+      await request.post('/graph/entities', payload)
+      ElMessage.success('实体创建成功')
+    }
+    closeEntityModal()
+    await loadGraph()
   } catch (err) {
-    ElMessage.error('创建实体失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
+    ElMessage.error(`${editingEntityId.value ? '修改' : '创建'}实体失败: ` + (err?.response?.data?.message || err.message || '网络错误'))
   }
 }
 
 async function submitRelation() {
+  const payload = {
+    source: newRelation.value.source.trim(),
+    target: newRelation.value.target.trim(),
+    relation_type: newRelation.value.relation_type.trim(),
+    description: newRelation.value.description.trim(),
+  }
+  if (!payload.source || !payload.target || !payload.relation_type) {
+    ElMessage.warning('请填写起始实体、目标实体和关系类型')
+    return
+  }
+  if (payload.source === payload.target) {
+    ElMessage.warning('起始实体和目标实体不能相同')
+    return
+  }
   try {
-    await request.post('/graph/relations', newRelation.value)
-    ElMessage.success('关系创建成功')
-    showAddRelation.value = false
-    newRelation.value = { source: '', target: '', relation_type: '包含', description: '' }
-    loadGraph()
+    if (editingRelationOriginal.value) {
+      await request.put('/graph/relations', {
+        original_source: editingRelationOriginal.value.source,
+        original_target: editingRelationOriginal.value.target,
+        original_relation_type: editingRelationOriginal.value.relation_type,
+        ...payload,
+      })
+      ElMessage.success('关系修改成功')
+    } else {
+      await request.post('/graph/relations', payload)
+      ElMessage.success('关系创建成功')
+    }
+    closeRelationModal()
+    await loadGraph()
   } catch (err) {
-    ElMessage.error('创建关系失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
+    ElMessage.error(`${editingRelationOriginal.value ? '修改' : '创建'}关系失败: ` + (err?.response?.data?.message || err.message || '网络错误'))
   }
 }
 
@@ -1099,7 +1261,7 @@ onUnmounted(() => {
   top: 14px;
   left: 100px;
   z-index: 32;
-  width: min(560px, calc(100vw - 520px));
+  width: min(760px, calc(100vw - 520px));
   padding: 8px;
   gap: 10px;
   background: rgba(3, 7, 18, 0.7);
@@ -1118,7 +1280,9 @@ onUnmounted(() => {
 }
 
 .knowledge-graph-page :deep(.right) {
-  display: none;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .knowledge-graph-page :deep(.search-box),
@@ -1136,6 +1300,11 @@ onUnmounted(() => {
 .knowledge-graph-page :deep(.filter-select) {
   width: 128px;
   background: rgba(8, 15, 30, 0.82);
+}
+
+.knowledge-graph-page :deep(.btn) {
+  padding: 0 10px;
+  white-space: nowrap;
 }
 
 .graph-layout {
@@ -1552,7 +1721,7 @@ onUnmounted(() => {
 
 .panel-toggle {
   position: absolute;
-  top: 50%;
+  top: 112px;
   left: 384px;
   z-index: 38;
   width: 28px;
@@ -1567,7 +1736,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transform: translateY(-50%);
   transition: left 0.24s ease, background 0.2s, color 0.2s;
 }
 
@@ -1615,6 +1783,47 @@ onUnmounted(() => {
 .panel-count {
   font-size: 12px;
   color: #93c5fd;
+}
+
+.panel-search {
+  margin: 8px 8px 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 7px;
+  background: rgba(3, 7, 18, 0.52);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.panel-search:focus-within {
+  border-color: rgba(125, 211, 252, 0.48);
+  background: rgba(8, 15, 30, 0.82);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.1);
+}
+
+.panel-search svg {
+  width: 15px;
+  height: 15px;
+  fill: #7dd3fc;
+  flex-shrink: 0;
+}
+
+.panel-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #eaf2ff;
+  background: transparent;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.panel-search input::placeholder {
+  color: #64748b;
 }
 
 .panel-body {
@@ -1693,6 +1902,22 @@ onUnmounted(() => {
   color: #7dd3fc;
 }
 
+.item-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 1;
+  transition: opacity 0.2s;
+}
+
+.entity-item:hover .item-actions,
+.entity-item.active .item-actions,
+.relation-item:hover .item-actions {
+  opacity: 1;
+}
+
 .type-c0  { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); }
 	.type-c1  { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
 	.type-c2  { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
@@ -1759,6 +1984,10 @@ onUnmounted(() => {
   border: 1px solid rgba(125, 211, 252, 0.22);
   padding: 2px 7px;
   border-radius: 999px;
+}
+
+.relation-actions {
+  margin-left: auto;
 }
 
 .relation-empty {
@@ -1980,7 +2209,7 @@ onUnmounted(() => {
 }
 
 .btn-icon:hover {
-  background: rgba(248, 113, 113, 0.12);
+  background: rgba(125, 211, 252, 0.12);
 }
 
 .btn-icon svg {
@@ -1990,24 +2219,26 @@ onUnmounted(() => {
 }
 
 .btn-icon:hover svg {
+  fill: #7dd3fc;
+}
+
+.btn-delete:hover,
+.btn-delete-sm:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.btn-delete:hover svg,
+.btn-delete-sm:hover svg {
   fill: #f87171;
 }
 
-.btn-delete {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.entity-item:hover .btn-delete {
-  opacity: 1;
-}
-
+.btn-edit-sm,
 .btn-delete-sm {
   width: 22px;
   height: 22px;
-  margin-left: auto;
 }
 
+.btn-edit-sm svg,
 .btn-delete-sm svg {
   width: 14px;
   height: 14px;
@@ -2054,6 +2285,7 @@ onUnmounted(() => {
   }
 
   .panel-toggle {
+    top: 104px;
     left: min(384px, calc(100vw - 40px));
   }
 

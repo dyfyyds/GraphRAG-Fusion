@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from app.dependencies import require_admin
 from app.services import graph_service
 from app.schemas.graph import (
     GraphSearchResult, EntityOut, EntityCreate, EntityUpdate,
-    RelationOut, RelationCreate, GraphStatsOut,
+    RelationOut, RelationCreate, RelationUpdate, RelationDelete, GraphStatsOut,
 )
 
 router = APIRouter(prefix="/api/graph", tags=["知识图谱"])
@@ -50,7 +50,15 @@ async def delete_entity(entity_id: str, _admin: dict = Depends(require_admin)):
 @router.get("/relations", response_model=list[RelationOut])
 async def get_relations(limit: int = 100):
     results = await graph_service.get_relations(limit)
-    return [RelationOut(source=r.get("source", ""), target=r.get("target", ""), relation_type=r.get("relation_type", "")) for r in results]
+    return [
+        RelationOut(
+            source=r.get("source", ""),
+            target=r.get("target", ""),
+            relation_type=r.get("relation_type", ""),
+            description=r.get("description", ""),
+        )
+        for r in results
+    ]
 
 
 @router.post("/relations", response_model=RelationOut)
@@ -62,9 +70,49 @@ async def create_relation(body: RelationCreate, _admin: dict = Depends(require_a
     return RelationOut(**result)
 
 
+@router.put("/relations", response_model=dict)
+async def update_relation(
+    body: RelationUpdate,
+    source: str | None = None,
+    target: str | None = None,
+    relation_type: str | None = None,
+    _admin: dict = Depends(require_admin),
+):
+    original_source = body.original_source or source
+    original_target = body.original_target or target
+    original_relation_type = body.original_relation_type or relation_type
+    if not original_source or not original_target or not original_relation_type:
+        from app.exceptions import AppError
+        raise AppError("缺少原关系定位信息", status_code=400)
+
+    ok = await graph_service.update_relation(
+        original_source,
+        original_target,
+        original_relation_type,
+        body.source,
+        body.target,
+        body.relation_type,
+        body.description,
+    )
+    return {"success": ok}
+
+
 @router.delete("/relations")
-async def delete_relation(source: str, target: str, relation_type: str, _admin: dict = Depends(require_admin)):
-    ok = await graph_service.delete_relation(source, target, relation_type)
+async def delete_relation(
+    source: str | None = None,
+    target: str | None = None,
+    relation_type: str | None = None,
+    body: RelationDelete | None = Body(default=None),
+    _admin: dict = Depends(require_admin),
+):
+    rel_source = body.source if body else source
+    rel_target = body.target if body else target
+    rel_type = body.relation_type if body else relation_type
+    if not rel_source or not rel_target or not rel_type:
+        from app.exceptions import AppError
+        raise AppError("缺少关系删除信息", status_code=400)
+
+    ok = await graph_service.delete_relation(rel_source, rel_target, rel_type)
     return {"success": ok}
 
 

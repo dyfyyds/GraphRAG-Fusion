@@ -25,6 +25,7 @@ class RelationOut(BaseModel):
     source: str
     target: str
     relation_type: str
+    description: str = ""
     properties: dict = {}
 
 
@@ -33,6 +34,22 @@ class RelationCreate(BaseModel):
     target: str
     relation_type: str
     description: str = ""
+
+
+class RelationUpdate(BaseModel):
+    original_source: str | None = None
+    original_target: str | None = None
+    original_relation_type: str | None = None
+    source: str | None = None
+    target: str | None = None
+    relation_type: str | None = None
+    description: str | None = None
+
+
+class RelationDelete(BaseModel):
+    source: str
+    target: str
+    relation_type: str
 
 
 class GraphSearchResult(BaseModel):
