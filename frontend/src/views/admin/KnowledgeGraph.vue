@@ -8,6 +8,7 @@
     <!-- Toolbar -->
     <GraphToolbar
       v-model:type-filter="typeFilter"
+      :entity-types="dynamicEntityTypes"
       @search="handleSearch"
       @add-entity="showAddEntity = true"
       @add-relation="showAddRelation = true"
@@ -19,12 +20,16 @@
         <!-- Floating stats overlay -->
         <div class="graph-stats">
           <div class="graph-stat">
-            <div class="num">{{ entityCount.toLocaleString() }}</div>
-            <div class="label">实体总数</div>
+            <div class="num">{{ filteredEntityCount.toLocaleString() }}</div>
+            <div class="label">显示实体</div>
           </div>
           <div class="graph-stat">
-            <div class="num">{{ relationCount.toLocaleString() }}</div>
-            <div class="label">关系总数</div>
+            <div class="num">{{ filteredRelationCount.toLocaleString() }}</div>
+            <div class="label">显示关系</div>
+          </div>
+          <div class="graph-stat">
+            <div class="num">{{ entityCount.toLocaleString() }}</div>
+            <div class="label">实体总数</div>
           </div>
           <div class="graph-stat">
             <div class="num">{{ typeCount }}</div>
@@ -34,11 +39,53 @@
 
         <SemanticCosmos
           ref="semanticCosmosRef"
-          :entities="entities"
-          :relations="relations"
+          :entities="graphFilteredEntities"
+          :relations="graphFilteredRelations"
           :selected-entity="selectedEntity"
           @select="selectEntity"
         />
+
+        <!-- Filter Panel: Entity Types & Relation Types -->
+        <div class="graph-filter-panel" v-if="allEntityTypes.length > 0 || allRelationTypes.length > 0">
+          <!-- Entity Types -->
+          <div class="filter-section">
+            <div class="filter-section-header">
+              <span class="filter-section-title">实体类型 <span class="filter-count">{{ allEntityTypes.length }}</span></span>
+            </div>
+            <div class="filter-chips">
+              <button
+                v-for="t in allEntityTypes"
+                :key="t.type"
+                class="filter-chip entity-chip"
+                :class="{ active: activeEntityTypes.size === 0 || activeEntityTypes.has(t.type) }"
+                @click="toggleEntityType(t.type)"
+              >
+                <span class="chip-label">{{ t.type }}</span>
+                <span class="chip-count">{{ t.count }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Relation Types -->
+          <div class="filter-section" v-if="allRelationTypes.length > 0">
+            <div class="filter-section-header">
+              <span class="filter-section-title">关系类型 <span class="filter-count">{{ allRelationTypes.length }}</span></span>
+            </div>
+            <div class="filter-chips">
+              <button
+                v-for="r in allRelationTypes.slice(0, 20)"
+                :key="r.type"
+                class="filter-chip rel-chip"
+                :class="{ active: activeRelationTypes.size === 0 || activeRelationTypes.has(r.type) }"
+                @click="toggleRelationType(r.type)"
+              >
+                <span class="chip-label">{{ r.type }}</span>
+                <span class="chip-count">{{ r.count }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="graph-controls">
           <div class="graph-control" @click="zoomIn" title="放大">
             <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -141,11 +188,8 @@
           <div class="form-group">
             <label>实体类型 <span class="required">*</span></label>
             <select v-model="newEntity.entity_type" class="form-select">
-              <option value="Product">产品</option>
-              <option value="Department">部门</option>
-              <option value="Person">人物</option>
-              <option value="Concept">概念</option>
-              <option value="Process">流程</option>
+              <option v-for="t in dynamicEntityTypes" :key="t.value" :value="t.value">{{ t.label }}</option>
+              <option v-if="dynamicEntityTypes.length === 0" value="Concept">概念</option>
             </select>
           </div>
           <div class="form-group">
@@ -179,12 +223,8 @@
           <div class="form-group">
             <label>关系类型 <span class="required">*</span></label>
             <select v-model="newRelation.relation_type" class="form-select">
-              <option value="包含">包含</option>
-              <option value="属于">属于</option>
-              <option value="生产">生产</option>
-              <option value="使用">使用</option>
-              <option value="依赖">依赖</option>
-              <option value="导致">导致</option>
+              <option v-for="t in allRelationTypes" :key="t.type" :value="t.type">{{ t.type }} ({{ t.count }})</option>
+              <option v-if="allRelationTypes.length === 0" value="关联">关联</option>
             </select>
           </div>
           <div class="form-group">
@@ -208,7 +248,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, provide } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as d3 from 'd3'
 import { useRouter } from 'vue-router'
@@ -228,6 +268,103 @@ const showAddEntity = ref(false)
 const showAddRelation = ref(false)
 const loading = ref(false)
 const rightPanelCollapsed = ref(true)
+
+// --- Entity Type & Relation Type Filter State ---
+const activeEntityTypes = ref(new Set())
+const activeRelationTypes = ref(new Set())
+
+const TYPE_TO_GALAXY = {
+  // English types
+  Product: 'Knowledge', Department: 'Society', Person: 'Self',
+  Concept: 'Abstract', Process: 'Creation', Document: 'Knowledge',
+  Policy: 'Society', Rule: 'Society', Event: 'Emotion',
+  // Chinese types from LLM extraction
+  '法规': 'Knowledge', '文件': 'Knowledge', '条款': 'Abstract',
+  '章节': 'Abstract', '附件': 'Knowledge', '主体': 'Society',
+  '机构': 'Society', '职责': 'Society', '条件': 'Abstract',
+  '材料': 'Creation', '资质': 'Self', '资格': 'Self',
+  '能力': 'Self', '行为': 'Emotion', '流程': 'Creation',
+  '标准': 'Knowledge', '范围': 'Abstract', '例外': 'Emotion',
+  '禁止': 'Emotion', '期限': 'Nature', '金额': 'Nature',
+  '比例': 'Nature', '项目': 'Creation', '服务': 'Creation',
+  '系统': 'Knowledge', '凭证': 'Knowledge', '责任': 'Society',
+  '财务事项': 'Nature', '概念': 'Abstract', '规则': 'Society',
+}
+
+const GALAXY_NAMES = {
+  Society: '社会', Self: '自我', Nature: '自然', Emotion: '情绪',
+  Abstract: '抽象', Knowledge: '知识', Art: '艺术', Creation: '创造',
+}
+
+function galaxyForType(entityType) {
+  if (TYPE_TO_GALAXY[entityType]) return TYPE_TO_GALAXY[entityType]
+  const keys = Object.keys(GALAXY_NAMES)
+  let h = 2166136261
+  const text = String(entityType || 'default')
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return keys[Math.abs(h >>> 0) % keys.length]
+}
+
+// Compute all unique entity types and relation types from loaded data
+const allEntityTypes = computed(() => {
+  const map = new Map()
+  for (const e of entities.value) {
+    if (!e.entity_type) continue
+    if (!map.has(e.entity_type)) map.set(e.entity_type, { type: e.entity_type, count: 0 })
+    map.get(e.entity_type).count++
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count)
+})
+
+const allRelationTypes = computed(() => {
+  const map = new Map()
+  for (const r of relations.value) {
+    const t = r.relation_type || '关联'
+    if (!map.has(t)) map.set(t, { type: t, count: 0 })
+    map.get(t).count++
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count)
+})
+
+// Filtered data for the 3D graph visualization
+const graphFilteredEntities = computed(() => {
+  if (activeEntityTypes.value.size === 0) return entities.value
+  return entities.value.filter(e => activeEntityTypes.value.has(e.entity_type))
+})
+
+const graphFilteredRelations = computed(() => {
+  const entityNames = new Set(graphFilteredEntities.value.map(e => e.name).filter(Boolean))
+  return relations.value.filter(r => {
+    // Both endpoints must be visible
+    if (!entityNames.has(r.source) || !entityNames.has(r.target)) return false
+    // Relation type must be active
+    const relType = r.relation_type || '关联'
+    if (activeRelationTypes.value.size > 0 && !activeRelationTypes.value.has(relType)) return false
+    return true
+  })
+})
+
+function toggleEntityType(type) {
+  const s = new Set(activeEntityTypes.value)
+  if (s.has(type)) s.delete(type)
+  else s.add(type)
+  activeEntityTypes.value = s
+}
+
+function toggleRelationType(relType) {
+  const s = new Set(activeRelationTypes.value)
+  if (s.has(relType)) s.delete(relType)
+  else s.add(relType)
+  activeRelationTypes.value = s
+}
+
+// Provide filter state to child components
+provide('activeEntityTypes', activeEntityTypes)
+provide('activeRelationTypes', activeRelationTypes)
+provide('toggleEntityType', toggleEntityType)
+provide('toggleRelationType', toggleRelationType)
+provide('allEntityTypes', allEntityTypes)
+provide('allRelationTypes', allRelationTypes)
 
 let simulation = null
 let svg = null
@@ -260,6 +397,17 @@ function typeDomId(type) {
 
 const entityCount = computed(() => entities.value.length)
 const relationCount = computed(() => relations.value.length)
+const filteredEntityCount = computed(() => graphFilteredEntities.value.length)
+const filteredRelationCount = computed(() => graphFilteredRelations.value.length)
+
+const dynamicEntityTypes = computed(() => {
+  return allEntityTypes.value.map(t => ({
+    value: t.type,
+    label: t.type,
+    count: t.count
+  }))
+})
+
 const typeCount = computed(() => {
   const types = new Set(entities.value.map(e => e.entity_type))
   return types.size
@@ -333,6 +481,13 @@ async function loadGraph(query = '') {
     entities.value = Array.isArray(entRes) ? entRes : (entRes.data || [])
     relations.value = Array.isArray(relRes) ? relRes : (relRes.data || [])
     assignTypeStyles()
+    // Initialize filter state: all entity types and relation types active by default
+    if (activeEntityTypes.value.size === 0) {
+      activeEntityTypes.value = new Set(entities.value.map(e => e.entity_type).filter(Boolean))
+    }
+    if (activeRelationTypes.value.size === 0) {
+      activeRelationTypes.value = new Set(relations.value.map(r => r.relation_type || '关联'))
+    }
   } catch (err) {
     if (requestId === loadRequestId) {
       ElMessage.error('加载知识图谱失败: ' + (err?.response?.data?.message || err.message || '网络错误'))
@@ -1168,6 +1323,138 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.58);
 }
 
+/* Filter Panel */
+.graph-filter-panel {
+  position: absolute;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  gap: 16px;
+  max-width: min(90vw, 720px);
+  background: rgba(2, 6, 23, 0.82);
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 10px;
+  padding: 10px 16px;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.filter-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.filter-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-family: monospace;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 80px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.filter-chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.filter-chip.active {
+  color: #ffffff;
+  background: color-mix(in srgb, var(--chip-color, #06b6d4) 18%, transparent);
+  border-color: color-mix(in srgb, var(--chip-color, #06b6d4) 40%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--chip-color, #06b6d4) 20%, transparent);
+}
+
+.filter-chip:not(.active) {
+  opacity: 0.45;
+}
+
+.filter-chip .chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.filter-chip.active .chip-dot {
+  box-shadow: 0 0 4px var(--chip-color, #06b6d4);
+}
+
+.filter-chip .chip-count {
+  font-size: 9px;
+  opacity: 0.5;
+  font-family: monospace;
+}
+
+.filter-chip.rel-chip {
+  --chip-color: #06b6d4;
+}
+
+.filter-chip.rel-chip.active {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.4);
+}
+
+.filter-chip.entity-chip {
+  --chip-color: #a78bfa;
+}
+
+.filter-chip.entity-chip.active {
+  background: rgba(167, 139, 250, 0.15);
+  border-color: rgba(167, 139, 250, 0.4);
+}
+
 /* Legend */
 .graph-legend {
   position: absolute;
@@ -1754,6 +2041,16 @@ onUnmounted(() => {
     right: auto;
     bottom: 12px;
     width: min(360px, calc(100vw - 48px));
+  }
+
+  .graph-filter-panel {
+    top: 110px;
+    left: 10px;
+    right: 10px;
+    transform: none;
+    max-width: none;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .panel-toggle {

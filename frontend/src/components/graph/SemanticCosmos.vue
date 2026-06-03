@@ -31,47 +31,6 @@
       </div>
     </div>
 
-    <!-- Left HUD: Glassmorphic Dimensions Sidebar -->
-    <div class="cosmos-left-sidebar" :class="{ collapsed: leftSidebarCollapsed }">
-      <button class="sidebar-toggle-btn" @click="toggleLeftSidebar">
-        <span class="arrow-icon">{{ leftSidebarCollapsed ? '▶' : '◀' }}</span>
-      </button>
-      <div class="sidebar-content">
-        <div class="hud-section-header">
-          <div class="section-title-zh">学科分歧 / 维度</div>
-          <div class="section-title-en">SUBJECT DIVERGENCE / GALAXIES</div>
-        </div>
-        <ul class="hud-category-list">
-          <li 
-            v-for="(galaxy, key) in GALAXIES" 
-            :key="key" 
-            class="hud-category-item"
-            :style="{ '--galaxy-color': galaxy.color }"
-          >
-            <span class="hud-dot"></span>
-            <div class="category-info">
-              <span class="label-zh">{{ galaxy.name }}</span>
-              <span class="label-en">{{ key.toUpperCase() }}</span>
-            </div>
-            <div class="category-stat">
-              <span class="stat-num">{{ getCategoryCount(key) }}</span>
-              <span class="stat-unit">NDS</span>
-            </div>
-          </li>
-        </ul>
-        <div class="sidebar-footer-stats">
-          <div class="footer-stat-item">
-            <span class="footer-stat-label">CLUSTER_NET:</span>
-            <span class="footer-stat-val text-cyan">ACTIVE</span>
-          </div>
-          <div class="footer-stat-item">
-            <span class="footer-stat-label">GRID_RESOLUTION:</span>
-            <span class="footer-stat-val">50x50</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Right HUD: Minimalist Glowing Data Panel -->
     <div 
       class="cosmos-right-panel" 
@@ -142,7 +101,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -161,7 +120,6 @@ const emit = defineEmits(['select'])
 
 const mountRef = ref(null)
 const viewMode = ref('cosmos') // 'cosmos' (spheres) or 'topology' (neural net)
-const leftSidebarCollapsed = ref(false)
 const isNodeHovered = ref(false)
 const systemTime = ref('00:00:00')
 
@@ -541,14 +499,6 @@ function buildNodes(entities, relations, relationCount) {
   runSimple3DForceLayout(nodes, relations)
 
   return nodes
-}
-
-function getCategoryCount(category) {
-  return graphNodes.value.filter(n => n.category === category).length
-}
-
-function toggleLeftSidebar() {
-  leftSidebarCollapsed.value = !leftSidebarCollapsed.value
 }
 
 function galaxyFor(entity) {
@@ -2252,188 +2202,6 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   white-space: nowrap;
 }
 
-/* 3. Left Glassmorphic Sidebar HUD */
-.cosmos-left-sidebar {
-  position: absolute;
-  top: auto;
-  left: 24px;
-  bottom: 32px;
-  width: 218px;
-  max-height: min(48vh, 430px);
-  z-index: 10;
-  background: rgba(2, 4, 10, 0.52);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  backdrop-filter: blur(18px);
-  box-shadow: 
-    0 20px 48px rgba(0, 0, 0, 0.55),
-    inset 0 1px 1px rgba(255, 255, 255, 0.05);
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: auto;
-}
-
-.cosmos-left-sidebar.collapsed {
-  transform: translateX(-194px);
-  background: rgba(2, 4, 10, 0.4);
-}
-
-.sidebar-toggle-btn {
-  position: absolute;
-  top: 20px;
-  right: -16px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(10, 15, 30, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 11;
-  transition: all 0.2s;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
-}
-
-.sidebar-toggle-btn:hover {
-  background: #0b0f19;
-  color: #ffffff;
-  border-color: rgba(6, 182, 212, 0.4);
-  box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
-}
-
-.sidebar-content {
-  position: absolute;
-  inset: 0;
-  padding: 16px 14px;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-.hud-section-header {
-  border-left: 3px solid #06b6d4;
-  padding-left: 8px;
-  margin-bottom: 12px;
-}
-
-.section-title-zh {
-  font-size: 12px;
-  font-weight: 700;
-  color: #ffffff;
-  letter-spacing: 1px;
-}
-
-.section-title-en {
-  font-size: 8px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
-  letter-spacing: 1.2px;
-  margin-top: 2px;
-}
-
-.hud-category-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.hud-category-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  background: rgba(255, 255, 255, 0.018);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.hud-category-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-.hud-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--galaxy-color);
-  box-shadow: 0 0 6px var(--galaxy-color), 0 0 12px var(--galaxy-color);
-  flex-shrink: 0;
-}
-
-.category-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.category-info .label-zh {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.category-info .label-en {
-  font-size: 8px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.4);
-  letter-spacing: 0.5px;
-  margin-top: 1px;
-}
-
-.category-stat {
-  font-family: monospace;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.85);
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-}
-
-.category-stat .stat-num {
-  font-weight: 700;
-}
-
-.category-stat .stat-unit {
-  font-size: 7px;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-.sidebar-footer-stats {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-top: 10px;
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.footer-stat-item {
-  display: flex;
-  justify-content: space-between;
-  font-family: monospace;
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-.footer-stat-val {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.text-cyan {
-  color: #06b6d4 !important;
-  text-shadow: 0 0 6px rgba(6, 182, 212, 0.4);
-}
-
 /* 4. Node HUD: Minimalist Glowing Data Panel */
 .cosmos-right-panel {
   position: absolute;
@@ -2734,17 +2502,6 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
 
   .render-scope {
     display: none;
-  }
-
-  .cosmos-left-sidebar {
-    left: 12px;
-    bottom: 14px;
-    width: 190px;
-    max-height: 42vh;
-  }
-
-  .cosmos-left-sidebar.collapsed {
-    transform: translateX(-166px);
   }
 
   .cosmos-right-panel {
