@@ -23,11 +23,9 @@
         @change="$emit('update:type-filter', $event.target.value)"
       >
         <option value="">全部类型</option>
-        <option value="Product">产品</option>
-        <option value="Department">部门</option>
-        <option value="Person">人物</option>
-        <option value="Concept">概念</option>
-        <option value="Process">流程</option>
+        <option v-for="t in entityTypes" :key="t.value" :value="t.value">
+          {{ t.label }} ({{ t.count }})
+        </option>
       </select>
     </div>
     <div class="right">
@@ -49,7 +47,8 @@ import { ref } from 'vue'
 const query = ref('')
 
 defineProps({
-  typeFilter: { type: String, default: '' }
+  typeFilter: { type: String, default: '' },
+  entityTypes: { type: Array, default: () => [] }
 })
 
 defineEmits(['search', 'add-entity', 'add-relation', 'update:type-filter'])
