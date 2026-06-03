@@ -162,7 +162,8 @@ async def get_relations(limit: int = 100) -> list[dict]:
                 limit_clause = _limit_clause(limit)
                 result = await session.run(
                     "MATCH (a)-[r]->(b) "
-                    f"RETURN elementId(a) AS source_id, a.name AS source, elementId(b) AS target_id, b.name AS target, r.rel_type AS relation_type{limit_clause}",
+                    f"RETURN elementId(a) AS source_id, a.name AS source, elementId(b) AS target_id, b.name AS target, "
+                    f"r.rel_type AS relation_type, r.description AS description{limit_clause}",
                     limit=limit,
                 )
                 records = await result.data()
@@ -277,11 +278,78 @@ async def create_relation(source: str, target: str, relation_type: str, descript
                 )
                 record = await result.single()
                 if record:
-                    return {"source": record["a_name"] or source, "target": record["b_name"] or target, "relation_type": relation_type}
+                    return {
+                        "source": record["a_name"] or source,
+                        "target": record["b_name"] or target,
+                        "relation_type": relation_type,
+                        "description": description or "",
+                    }
         return None
     except (asyncio.TimeoutError, Exception) as e:
         logger.error(f"创建关系失败: {e}")
         return None
+
+
+async def update_relation(
+    source: str,
+    target: str,
+    relation_type: str,
+    new_source: str | None = None,
+    new_target: str | None = None,
+    new_relation_type: str | None = None,
+    description: str | None = None,
+) -> bool:
+    driver = await get_neo4j_driver()
+    try:
+        next_source = normalize_entity_name(new_source or source)
+        next_target = normalize_entity_name(new_target or target)
+        next_relation_type = new_relation_type if new_relation_type is not None else relation_type
+        if (
+            not is_high_quality_entity_name(source)
+            or not is_high_quality_entity_name(target)
+            or not is_high_quality_entity_name(next_source)
+            or not is_high_quality_entity_name(next_target)
+            or not next_relation_type
+        ):
+            return False
+
+        async with asyncio.timeout(2):
+            async with driver.session() as session:
+                params = {
+                    "source": source,
+                    "target": target,
+                    "rel_type": relation_type,
+                    "new_source": next_source,
+                    "new_target": next_target,
+                    "new_rel_type": next_relation_type,
+                    "description": description,
+                }
+                result = await session.run(
+                    """
+                    MATCH (old_source)-[old_rel:RELATES]->(old_target)
+                    WHERE (old_source.name = $source OR elementId(old_source) = $source)
+                      AND (old_target.name = $target OR elementId(old_target) = $target)
+                      AND old_rel.rel_type = $rel_type
+                    MATCH (new_source), (new_target)
+                    WHERE (new_source.name = $new_source OR elementId(new_source) = $new_source)
+                      AND (new_target.name = $new_target OR elementId(new_target) = $new_target)
+                    WITH old_rel, new_source, new_target, old_rel.description AS old_desc
+                    DELETE old_rel
+                    CREATE (new_source)-[new_rel:RELATES]->(new_target)
+                    SET new_rel.rel_type = $new_rel_type,
+                        new_rel.description = CASE
+                            WHEN $description IS NULL THEN old_desc
+                            ELSE $description
+                        END
+                    RETURN count(new_rel) AS cnt
+                    """,
+                    **params,
+                )
+                record = await result.single()
+                return bool(record and record["cnt"] > 0)
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"更新关系失败: {e}")
+        return False
 
 
 async def delete_relation(source: str, target: str, relation_type: str) -> bool:

@@ -161,6 +161,7 @@ const pickScreenPos = new THREE.Vector3()
 const pickRadiusPos = new THREE.Vector3()
 const cameraRight = new THREE.Vector3()
 const cameraUp = new THREE.Vector3()
+const pointerClient = new THREE.Vector2(-9999, -9999)
 
 let scene
 let camera
@@ -188,6 +189,7 @@ let hoveredNode = null
 
 // Flow particles array for animating logical relationships
 const flowParticles = []
+const animatedPlanetRefs = []
 const spriteTextureCache = new Map()
 const geometryCache = new Map()
 let lastGraphSignature = ''
@@ -810,6 +812,7 @@ function initScene() {
 function onPointerMove(event) {
   if (!renderer || !camera || !mountRef.value) return
   const rect = renderer.domElement.getBoundingClientRect()
+  pointerClient.set(event.clientX, event.clientY)
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
 }
@@ -1085,6 +1088,7 @@ function createPlanet(node) {
     depthWrite: false
   })
   const halo = new THREE.Mesh(haloGeom, haloMat)
+  halo.userData.isHalo = true
   group.add(halo)
 
   if (richPlanet) {
@@ -1218,6 +1222,12 @@ function createPlanet(node) {
   })
 
   // 9. Add group to scene nodeGroup and save in nodeObjects map for hover/focus interactions
+  animatedPlanetRefs.push({
+    group,
+    rings: group.children.filter(child => child.userData.isRing),
+    moonGroups: group.children.filter(child => child.userData.isMoonGroup),
+    halo: group.children.find(child => child.userData.isHalo),
+  })
   if (nodeGroup) {
     nodeGroup.add(group)
   }
@@ -1470,6 +1480,7 @@ function clearGraphObjects() {
   labelGroup = null
   flowGroup = null
   flowParticles.length = 0
+  animatedPlanetRefs.length = 0
 }
 
 function handlePointerDown(event) {
@@ -1807,9 +1818,15 @@ function updateLabelVisibility() {
 // Hover Raycaster Detection inside Animation Frame
 function updateHoverRaycaster() {
   if (!renderer || !camera || !nodeGroup) return
-  raycaster.setFromCamera(pointer, camera)
-  const hits = raycaster.intersectObjects(nodeGroup.children, true)
-  const node = findNodeFromHit(hits)
+  const rect = renderer.domElement.getBoundingClientRect()
+  const inside =
+    pointerClient.x >= rect.left &&
+    pointerClient.x <= rect.right &&
+    pointerClient.y >= rect.top &&
+    pointerClient.y <= rect.bottom
+  const node = inside
+    ? findNodeFromScreenPoint({ clientX: pointerClient.x, clientY: pointerClient.y }, rect)
+    : null
   
   if (node) {
     if (hoveredNode !== node) {
@@ -1918,19 +1935,18 @@ function animate() {
 
   if (nodeGroup) {
     const animateEvery = renderQuality.value === 'ultra' ? 4 : renderQuality.value === 'low' ? 3 : 1
-    nodeGroup.children.forEach((group, index) => {
+    animatedPlanetRefs.forEach((item, index) => {
       if (index % animateEvery !== animationFrameTick % animateEvery) return
+      const group = item.group
       group.rotation.y += 0.002 + (index % 5) * 0.00018
-      const ring = group.children.find(child => child.userData.isRing)
-      if (ring) ring.rotation.z += 0.005
+      for (const ring of item.rings) ring.rotation.z += 0.005
       
-      const moonGroup = group.children.find(child => child.userData.isMoonGroup)
-      if (moonGroup) {
+      for (const moonGroup of item.moonGroups) {
         moonGroup.rotation.y += moonGroup.userData.orbitSpeed
       }
       
       // Pulse outer glow halo (located at index 2 of group children)
-      const halo = group.children[2]
+      const halo = item.halo
       if (halo?.material) halo.material.opacity = 0.14 + Math.sin(elapsed * 1.8 + index) * 0.04
     })
   }
@@ -1949,7 +1965,7 @@ function animate() {
   if (animationFrameTick % labelInterval === 0 || isCameraAnimating) updateLabelVisibility()
 
   composer.render()
-  labelRenderer.render(scene, camera)
+  // Labels are positioned with the manual DOM label layer; there are no CSS2DObjects to render here.
 }
 
 function disposeScene() {
