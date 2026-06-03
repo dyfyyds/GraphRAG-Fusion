@@ -14,59 +14,43 @@ from app.models.system_config import SystemConfig
 logger = logging.getLogger("app")
 
 # ── 系统提示词：实体抽取 ──────────────────────────────────────────
-EXTRACT_SYSTEM_PROMPT = """## 1. 概述
-你是一个顶级算法，旨在从文本中提取结构化格式信息，以构建知识图谱。
-- **节点**代表实体和概念，类似于维基百科节点。
-- 目的是实现知识图谱的简单性和清晰度，使其可供企业级问答检索使用。
-- 你的输出将直接影响 RAG 系统的检索精度，请务必遵守所有规则。
+EXTRACT_SYSTEM_PROMPT = """## 1. 任务
+你是企业法规/制度知识图谱抽取器。请从文本中抽取可用于问答检索的细粒度实体、关系和同义词。
+你的目标不是只保留少量总括节点，而是保留用户可能提问的法律依据、业务对象、条件、材料、例外和证明要求。
 
-## 2. 标记节点
-- **一致性**：确保使用基本或基础类型作为节点标签。
-  - 例如，当你识别到一个"条款"时，始终标记为**"条款"**，避免使用更具体的术语如"资格要求条款"或"例外条款"。
-  - 当你识别到一个"组织"时，始终标记为**"组织"**，不要使用"政府机关"或"国企"等更细化的标签。
-- **节点 ID**：切勿使用整数作为节点 ID。节点 ID 必须是文本中出现的名称或人类可读的标识符。
-- **实体名称**：必须精确引用原文，不要缩写、改写或自行总结。保持名称的完整性和可检索性。
-- **实体质量**：实体应是可独立检索的名词性对象。不要把普通谓语、半句话、连接词开头的片段抽成实体（例如"进一步规范""但下列行政事业性收费项目""以下情形"等负面示例）。如果片段带有"但下列/以下/上述"等前缀，应只保留真实名词实体。
+## 2. 实体粒度
+- 实体必须是可独立检索的名词性对象，名称优先使用原文中的完整表达。
+- 对法规政策文本，优先抽取这些类型：法规、文件、条款、章节、附件、主体、机构、职责、条件、材料、资质、资格、能力、行为、流程、标准、范围、例外、禁止、期限、金额、比例、项目、服务、系统、凭证、责任。
+- 对财会/采购/行政事业文本，特别保留：政府采购、招标文件、评审标准、资格审查、供应商、采购人、总公司、分公司、资质证明、业绩证明、设备证明、人员证明、授权文件、劳动合同、社保材料、行政事业性收费项目、政府会计准则、小企业会计准则、工会经费、会费、非税收入、票据、资产核算、账务处理等实体。
+- 对 800-1800 字的普通段落，通常应抽取 8-25 个实体和 8-30 条关系；如果只输出 2-3 个实体，说明抽取过粗。
+- 不要把普通谓语、半句话、连接词开头的片段抽成实体。例如不要输出"进一步规范""以下情形""应当提交以下材料"。遇到"但下列行政事业性收费项目"这类片段，应抽取真实名词实体"行政事业性收费项目"。
 {entity_types_section}
+
+## 3. 数值、日期和条款
+- 日期、金额、比例、数量通常作为相关实体的 properties，例如 effectiveDate、amount、ratio、articleNumber。
+- 但是，如果原文中存在可检索的约束名词，如"80%的比例""收费项目""期限要求""限额标准"，可以把约束对象作为实体，并把具体数字放入 properties。
+- 条款号（如"第二十二条"、"第十七条"）应作为条款实体，并与所属法规建立关系。
+
+## 4. 共指和同义词
+- 同一实体在文本中有全称、简称、代称时，实体名称使用最完整的标识符。
+- 将简称和常见问法写入 synonyms，例如"社会保障资金"和"社保"、"中华人民共和国政府采购法"和"政府采购法"。
+- 不要编造文本外不存在或不常见的同义词。
+
+## 5. 关系
+- 关系必须来自文本语义，方向准确，类型使用简洁动词或动词短语。
+- 优先识别：发布、引用、规定、包含、适用、要求、提供、证明、约束、承担、设立、不具有、认可、例外、禁止、关联、属于、依据、废止、施行。
+- 条款与法规使用"规定"或"包含"；主体与材料/条件使用"要求"、"提供"、"证明"；文件与条款/附件使用"包含"；旧制度与新制度使用"废止"、"衔接"、"引用"。
 {relation_types_section}
 
-## 3. 处理数值数据和日期
-- 数值数据（如金额、比例、数量）和日期（如发布日期、生效日期）应作为对应节点的**属性（properties）**合并，而不是创建单独的节点。
-- **不要为日期或数字创建单独的节点**。始终将它们附加为节点的属性。
-- **属性格式**：属性必须采用 JSON 键值格式（key-value）。
-- **引号**：切勿在属性值中使用转义单引号或双引号。
-- **命名约定**：使用 camelCase 作为属性键，例如 "effectiveDate"、"amount"、"ratio"、"articleNumber"。
-
-## 4. 共指消解（Coreference Resolution）
-- **维护实体一致性**：提取实体时，确保一致性至关重要。
-- 如果某个实体在文本中多次提及，但使用不同的名称或简称、代称，在整个知识图谱中**始终使用该实体最完整的标识符**。
-- 例如：文本中先后出现"中华人民共和国政府采购法"、"政府采购法"、"本法"，统一使用"中华人民共和国政府采购法"作为实体 ID。
-- 将简称和别名记录在同义词列表中。
-- 请记住，知识图谱应该是连贯且易于理解的，保持实体引用的一致性至关重要。
-
-## 5. 同义词（Synonyms）
-- 同义词只输出文本中**有明确指代**或**常见等价表达**的词，不要编造。
-- 同义词用于将用户口语化提问映射到正式实体名，例如用户问"社保"时能匹配到"社会保障资金"。
-- 每个同义词条目包含 original（正式实体名）和 synonym（简称或别名）。
-
-## 6. 关系（Relations）
-- 关系必须有**明确的语义依据**，不能凭空臆造。
-- 关系方向要准确：从源实体指向目标实体。
-- 关系类型使用简洁的动词或动词短语。
-- 对企业法规类文档，优先识别以下语义关系：
-  - 发布、引用、规定、要求、包含、适用、约束、承担、提供、例外、关联
-  - 对于条款与法规的关系，使用"规定"或"引用"
-  - 对于条件与主体的关系，使用"要求"或"具备"
-
-## 7. 严格合规
-严格遵守以上规则。不合规将导致抽取结果被质量过滤器丢弃。"""
+## 6. 输出纪律
+只输出 JSON。不得输出解释文字。实体、关系、同义词字段都必须存在。description 用 15-40 字概括该实体或关系在本文中的作用，不要整句复制原文。"""
 
 # ── 用户消息模板 ──────────────────────────────────────────────────
 EXTRACT_USER_TEMPLATE = """使用给定的格式从以下输入中提取信息：
 
 {text}
 
-提示：请务必输出正确格式的完整 JSON，不要遗漏任何字段。
+提示：请务必输出正确格式的完整 JSON，不要遗漏任何字段。请优先做细粒度抽取，覆盖条款、主体、条件、材料、例外、标准、金额比例等可检索对象。
 description 必须是对该实体在本文中角色或含义的简短概括（15-40字），不要复制原文。
 
 只输出 JSON，不要其他内容：
@@ -153,14 +137,16 @@ def _clean_json_response(response: str) -> dict:
     return {"entities": entities, "relations": relations, "synonyms": synonyms}
 
 
-def _fallback_extract(text: str, max_entities: int = 30) -> dict:
+def _fallback_extract(text: str, max_entities: int = 80) -> dict:
     """LLM 不可用时的保底抽取，保证文档仍能生成可检索的基础图谱。"""
     candidates: list[str] = []
     seen = set()
     patterns = [
-        r"[一-鿿A-Za-z0-9][一-鿿A-Za-z0-9·（）()《》_-]{2,30}(?:公司|集团|大学|学院|研究院|平台|系统|模型|算法|项目|技术|方案|流程|标准|规范|文件|报告|计划|指标|数据|服务)",
+        r"《[^》]{2,80}》",
+        r"(?:[\u4e00-\u9fff]{1,12})?[〔\[]\d{4}[〕\]]\d+号|(?:财政部令|国务院令)第\d+号|第[一二三四五六七八九十百0-9]+条",
+        r"[一-鿿A-Za-z0-9][一-鿿A-Za-z0-9·（）()《》_-]{2,36}(?:公司|集团|大学|学院|研究院|平台|系统|模型|算法|项目|技术|方案|流程|标准|规范|文件|报告|计划|指标|数据|服务|办法|制度|准则|目录|通知|规定|条例|材料|凭证|票据|合同|经费|会费|收入|支出|核算|科目|账务处理|收费项目|证明|资质|资格|能力|责任|条件|范围|期限|比例|限额)",
+        r"(?:政府采购|招标|投标|评标|评审|资格审查|资质证明|业绩证明|设备证明|人员证明|社保材料|劳动合同|授权文件|行政事业性收费项目|政府会计准则|小企业会计准则|工会经费|非税收入|资产核算|账务处理)[一-鿿A-Za-z0-9·（）()《》_-]{0,18}",
         r"[A-Z][A-Za-z0-9_-]{2,}(?:\s+[A-Z][A-Za-z0-9_-]{2,}){0,3}",
-        r"《[^》]{2,30}》",
     ]
     for pattern in patterns:
         for match in re.findall(pattern, text):
@@ -190,6 +176,154 @@ def _fallback_extract(text: str, max_entities: int = 30) -> dict:
         for i in range(min(len(candidates) - 1, 20))
     ]
     return {"entities": entities, "relations": relations, "synonyms": []}
+
+
+def _guess_entity_type(name: str) -> str:
+    if re.fullmatch(r"第[一二三四五六七八九十百0-9]+条", name):
+        return "条款"
+    if name.startswith("《") and name.endswith("》"):
+        return "法规"
+    if re.search(r"[〔\[]\d{4}[〕\]]\d+号|(?:财政部令|国务院令)第\d+号", name):
+        return "文件"
+    if any(word in name for word in ("采购人", "供应商", "总公司", "分公司", "机构", "部门", "单位")):
+        return "主体"
+    if any(word in name for word in ("证明", "材料", "凭证", "票据", "合同", "授权文件")):
+        return "材料"
+    if any(word in name for word in ("条件", "资格", "资质", "能力", "责任", "要求")):
+        return "条件"
+    if any(word in name for word in ("标准", "准则", "制度", "办法", "条例", "规定", "目录", "通知")):
+        return "规则"
+    if any(word in name for word in ("经费", "会费", "收入", "支出", "收费", "金额", "比例", "限额")):
+        return "财务事项"
+    return "概念"
+
+
+def _candidate_entity_fragments(value: str) -> list[str]:
+    """把“劳动合同和社保材料”这类粘连短语拆成可检索实体。"""
+    normalized = normalize_entity_name(value)
+    if not normalized:
+        return []
+    parts = re.split(r"(?:、|，|,|；|;|以及|或者|和|及|与|或)", normalized)
+    fragments: list[str] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        part = re.sub(r"^.*?(?:应当|应|可以|需|需要|要求|提供|提交|出具|签订|缴纳|加强|按照)", "", part).strip()
+        part = normalize_entity_name(part)
+        domain_starts = (
+            "政府采购", "招标", "投标", "评标", "评审", "资格审查",
+            "资质证明", "业绩证明", "设备证明", "人员证明", "社保材料",
+            "劳动合同", "授权文件", "行政事业性收费项目", "政府会计",
+            "小企业会计", "工会经费", "非税收入", "票据", "资产核算",
+            "账务处理", "预算会计", "财务会计",
+        )
+        marker_positions = [(part.find(marker), marker) for marker in domain_starts if part.find(marker) > 0]
+        if marker_positions:
+            start, _ = min(marker_positions, key=lambda item: item[0])
+            part = part[start:]
+        if part and part not in fragments:
+            fragments.append(part)
+    return fragments or [normalized]
+
+
+def _rule_extract_domain_context(text: str, max_entities: int = 120) -> dict:
+    """补充抽取跨领域的法规、条款、材料、条件和财会事项。"""
+    entities: list[dict] = []
+    relations: list[dict] = []
+    synonyms: list[dict] = []
+    seen_entities: set[str] = set()
+    seen_relations: set[tuple] = set()
+
+    def _add_entity(name: str, entity_type: str | None = None, description: str = "") -> str | None:
+        rec = clean_entity_record({
+            "name": name,
+            "type": entity_type or _guess_entity_type(normalize_entity_name(name)),
+            "description": description,
+        })
+        if not rec:
+            return None
+        normalized = rec["name"]
+        if normalized not in seen_entities and len(entities) < max_entities:
+            seen_entities.add(normalized)
+            entities.append(rec)
+        return normalized
+
+    def _add_rel(source: str, rel_type: str, target: str, description: str = ""):
+        s, t = normalize_entity_name(source), normalize_entity_name(target)
+        if s not in seen_entities or t not in seen_entities:
+            return
+        key = (s, rel_type, t)
+        if key in seen_relations:
+            return
+        seen_relations.add(key)
+        relations.append({"source": s, "target": t, "type": rel_type, "description": description})
+
+    doc_names = []
+    for match in re.findall(r"《[^》]{2,80}》", text):
+        name = _add_entity(match, "法规", "文中引用或规定的法规制度")
+        if name:
+            doc_names.append(name)
+
+    codes = []
+    for match in re.findall(r"(?:[\u4e00-\u9fff]{1,12})?[〔\[]\d{4}[〕\]]\d+号|(?:财政部令|国务院令)第\d+号", text):
+        name = _add_entity(match, "文件", "文中引用的政策文件编号")
+        if name:
+            codes.append(name)
+
+    articles = []
+    for match in re.findall(r"第[一二三四五六七八九十百0-9]+条", text):
+        name = _add_entity(match, "条款", "文中出现的具体条款依据")
+        if name:
+            articles.append(name)
+
+    for doc in doc_names + codes:
+        for article in articles[:40]:
+            _add_rel(doc, "包含", article, "法规或文件包含该条款")
+
+    phrase_patterns = [
+        r"(?:总公司|分公司|子公司|采购人|供应商|招标人|投标人|代理机构|评审专家|财政部门|行政事业单位|事业单位|工会组织)",
+        r"(?:资质证明|业绩证明|设备证明|人员证明|证明材料|证明文件|社保材料|劳动合同|授权文件|营业执照|合同|凭证|票据)",
+        r"(?:评审标准|评标标准|评分标准|资格条件|资格审查|履约能力|专业技术能力|民事责任|法人资格|投标资格)",
+        r"(?:行政事业性收费项目|收费项目|政府会计准则制度新旧衔接|政府会计准则|小企业会计准则|政府会计制度|会计制度|工会经费|会费|非税收入|资产核算|账务处理|预算会计|财务会计|会计科目)",
+        r"[一-鿿A-Za-z0-9]{2,28}(?:资质证明|业绩证明|设备证明|人员证明|证明材料|证明文件|社保材料|劳动合同|授权文件|营业执照|合同|凭证|票据)",
+        r"[一-鿿A-Za-z0-9]{2,28}(?:评审标准|评标标准|评分标准|资格条件|资格审查|履约能力|专业技术能力|民事责任|法人资格|投标资格)",
+        r"[一-鿿A-Za-z0-9]{2,28}(?:行政事业性收费项目|收费项目|政府会计准则|小企业会计准则|政府会计制度|会计制度|工会经费|会费|非税收入|资产核算|账务处理|预算会计|财务会计|会计科目)",
+        r"[一-鿿A-Za-z0-9]{2,28}(?:目录|清单|范围|期限|限额|比例|标准|办法|规定|制度|准则|条例|通知)",
+    ]
+    phrase_names: list[str] = []
+    for pattern in phrase_patterns:
+        for match in re.findall(pattern, text):
+            for fragment in _candidate_entity_fragments(match):
+                name = _add_entity(fragment, None, "文中可独立检索的业务对象")
+                if name:
+                    phrase_names.append(name)
+
+    for source in articles[:40] or doc_names[:8] or codes[:8]:
+        window_start = max(text.find(source) - 250, 0) if source in text else 0
+        window_end = min(text.find(source) + 600, len(text)) if source in text else len(text)
+        window = text[window_start:window_end]
+        for phrase in phrase_names[:80]:
+            if phrase in window and source != phrase:
+                rel_type = "要求" if any(key in phrase for key in ("证明", "材料", "条件", "资格", "能力")) else "规定"
+                _add_rel(source, rel_type, phrase, "条款或文件对该事项作出规定")
+
+    synonym_pairs = (
+        ("社会保障资金", "社保"),
+        ("中华人民共和国政府采购法", "政府采购法"),
+        ("中华人民共和国政府采购法实施条例", "政府采购法实施条例"),
+        ("中华人民共和国公司法", "公司法"),
+        ("政府会计准则制度新旧衔接", "新旧衔接"),
+        ("行政事业性收费项目", "收费项目"),
+    )
+    entity_set = {item["name"] for item in entities}
+    for original, synonym in synonym_pairs:
+        if original in entity_set or original in text:
+            normalized = _add_entity(original, _guess_entity_type(original), "常见正式名称")
+            if normalized:
+                synonyms.append({"original": normalized, "synonym": synonym})
+
+    return {"entities": entities, "relations": relations, "synonyms": synonyms}
 
 
 def _rule_extract_legal_context(text: str) -> dict:
@@ -458,7 +592,9 @@ async def extract_and_build(text: str, document_id: int) -> dict:
     kg_config = await _load_kg_config()
     entity_types = kg_config.get("entity_types", "")
     relation_types = kg_config.get("relation_types", "")
-    max_chars = int(kg_config.get("max_chars", 4000))
+    configured_max_chars = int(kg_config.get("max_chars", 1800))
+    max_chars = max(800, min(configured_max_chars, 2600))
+    min_entities = int(kg_config.get("min_entities_per_document", 12))
 
     if entity_types:
         entity_types_section = f"\n- **允许的节点标签：**{entity_types}"
@@ -493,8 +629,8 @@ async def extract_and_build(text: str, document_id: int) -> dict:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
-                temperature=0.1,
-                retries=1,
+                temperature=0.05,
+                retries=2,
                 no_timeout=True,
             )
             logger.info(f"文档 {document_id} 段 {idx+1}/{len(sections)} LLM 抽取响应长度: {len(response)}")
@@ -504,17 +640,27 @@ async def extract_and_build(text: str, document_id: int) -> dict:
             logger.warning(f"文档 {document_id} 段 {idx+1} 抽取失败: {str(e)[:200]}")
             extraction_failed = True
 
-    # 合并确定性规则抽取结果（法规特有实体/关系）
-    rule_data = _rule_extract_legal_context(text)
+    # 合并确定性规则抽取结果：先补法规特例，再补通用领域实体，避免 LLM 抽得过粗。
+    rule_data = _merge_extraction_data(
+        _rule_extract_legal_context(text),
+        _rule_extract_domain_context(text),
+    )
     all_data = _merge_extraction_data(all_data, rule_data)
 
-    if not all_data.get("entities") and not all_data.get("relations"):
+    entity_total = len(all_data.get("entities") or [])
+    relation_total = len(all_data.get("relations") or [])
+    if entity_total == 0 and relation_total == 0:
         logger.warning(f"文档 {document_id} LLM 未抽取到任何实体或关系")
 
-    if extraction_failed and (not all_data.get("entities")):
+    expected_min_entities = max(min_entities, min(80, len(text) // 180))
+    if extraction_failed or entity_total < expected_min_entities or relation_total < max(6, expected_min_entities // 2):
         try:
-            fallback_data = _fallback_extract(text[:max_chars])
+            fallback_data = _fallback_extract(text, max_entities=max(80, expected_min_entities))
             all_data = _merge_extraction_data(all_data, fallback_data)
+            logger.info(
+                "文档 %s 启用补充抽取: LLM/规则结果 %s 实体 %s 关系, 目标下限 %s",
+                document_id, entity_total, relation_total, expected_min_entities,
+            )
         except Exception as fallback_err:
             logger.error(f"文档 {document_id} 降级抽取也失败: {fallback_err}", exc_info=True)
 

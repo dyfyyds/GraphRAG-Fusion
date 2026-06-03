@@ -26,6 +26,9 @@
         <span class="time-label">SYS_SEC:</span>
         <span class="time-value">{{ systemTime }}</span>
       </div>
+      <div class="render-scope">
+        CORE {{ graphNodes.length }} / {{ props.entities.length || 0 }}
+      </div>
     </div>
 
     <!-- Left HUD: Glassmorphic Dimensions Sidebar -->
@@ -228,6 +231,22 @@ let hoveredNode = null
 // Flow particles array for animating logical relationships
 const flowParticles = []
 const spriteTextureCache = new Map()
+const geometryCache = new Map()
+let lastGraphSignature = ''
+let animationFrameTick = 0
+
+const PERFORMANCE_LIMITS = {
+  mediumNodeCount: 180,
+  lowNodeCount: 420,
+  ultraNodeCount: 820,
+}
+
+const GRAPH_RENDER_LIMITS = {
+  maxNodes: 160,
+  maxLinks: 360,
+  selectedNeighborLimit: 72,
+  minCoreNodes: 90,
+}
 
 // Gesture click tracking to distinguish rotation drags from select clicks
 let pointerDownTime = 0
@@ -247,7 +266,138 @@ const hudData = ref({
   relationItems: []
 })
 
-const graphNodes = computed(() => buildNodes(props.entities, props.relations))
+const relationStats = computed(() => buildRelationStats(props.entities, props.relations))
+const renderedGraph = computed(() => buildRenderedGraph(props.entities, props.relations, props.selectedEntity, relationStats.value))
+const graphNodes = computed(() => buildNodes(renderedGraph.value.entities, renderedGraph.value.relations, relationStats.value.countByName))
+const graphSignature = computed(() => {
+  const entityPart = (renderedGraph.value.entities || [])
+    .map(entity => `${entity.id ?? ''}:${entity.name ?? ''}:${entity.entity_type ?? entity.type ?? ''}:${entity.weight ?? entity.importance ?? entity.score ?? ''}:${entity.x ?? ''}:${entity.y ?? ''}:${entity.z ?? ''}`)
+    .join('|')
+  const relationPart = (renderedGraph.value.relations || [])
+    .map(rel => `${rel.source ?? rel.source_id ?? ''}>${rel.target ?? rel.target_id ?? ''}:${rel.relation_type ?? rel.rel ?? rel.type ?? ''}`)
+    .join('|')
+  const selectedPart = props.selectedEntity ? `${props.selectedEntity.id || ''}:${props.selectedEntity.name || ''}` : ''
+  return `${entityPart}::${relationPart}::${selectedPart}`
+})
+
+const renderQuality = computed(() => {
+  const count = graphNodes.value.length
+  if (count >= PERFORMANCE_LIMITS.ultraNodeCount) return 'ultra'
+  if (count >= PERFORMANCE_LIMITS.lowNodeCount) return 'low'
+  if (count >= PERFORMANCE_LIMITS.mediumNodeCount) return 'medium'
+  return 'high'
+})
+
+function getCachedGeometry(key, factory) {
+  if (geometryCache.has(key)) return geometryCache.get(key)
+  const geometry = factory()
+  geometry.userData.cachedGeometry = true
+  geometryCache.set(key, geometry)
+  return geometry
+}
+
+function getRoundedRadius(radius, step = 0.12) {
+  return Math.max(step, Math.round(radius / step) * step)
+}
+
+function shouldUseRichPlanet(node) {
+  if (renderQuality.value === 'high') return true
+  if (renderQuality.value === 'medium') return node.weight >= 6.5 || node.relationCount >= 2
+  if (renderQuality.value === 'low') return node.weight >= 8 || node.relationCount >= 5
+  return node.weight >= 9.2 || node.relationCount >= 8
+}
+
+function relationEndpoints(rel) {
+  return {
+    source: rel.source ?? rel.source_name ?? rel.source_id,
+    target: rel.target ?? rel.target_name ?? rel.target_id,
+    type: rel.relation_type || rel.rel || rel.type || '关联',
+  }
+}
+
+function relationKey(rel) {
+  const endpoint = relationEndpoints(rel)
+  return `${endpoint.source}->${endpoint.target}:${endpoint.type}`
+}
+
+function buildRelationStats(entities, relations) {
+  const entityNames = new Set((entities || []).map(entity => entity.name).filter(Boolean))
+  const countByName = Object.create(null)
+  const neighborsByName = new Map()
+  const validRelations = []
+
+  for (const entity of entities || []) {
+    if (!entity.name) continue
+    countByName[entity.name] = 0
+    neighborsByName.set(entity.name, new Set())
+  }
+
+  for (const rel of relations || []) {
+    const { source, target } = relationEndpoints(rel)
+    if (!source || !target || !entityNames.has(source) || !entityNames.has(target)) continue
+    validRelations.push(rel)
+    countByName[source] = (countByName[source] || 0) + 1
+    countByName[target] = (countByName[target] || 0) + 1
+    neighborsByName.get(source)?.add(target)
+    neighborsByName.get(target)?.add(source)
+  }
+
+  return { countByName, neighborsByName, validRelations }
+}
+
+function buildRenderedGraph(entities, relations, selectedEntity, stats) {
+  const sourceEntities = Array.isArray(entities) ? entities : []
+  const entityByName = new Map(sourceEntities.map(entity => [entity.name, entity]).filter(([name]) => !!name))
+  const countByName = stats.countByName || {}
+  const neighborsByName = stats.neighborsByName || new Map()
+  const validRelations = stats.validRelations || []
+  const sortedEntities = [...sourceEntities]
+    .filter(entity => entity.name)
+    .sort((a, b) => {
+      const degreeDiff = (countByName[b.name] || 0) - (countByName[a.name] || 0)
+      if (degreeDiff !== 0) return degreeDiff
+      return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN')
+    })
+
+  const selectedName = selectedEntity?.name
+  const selectedNeighbors = selectedName ? [...(neighborsByName.get(selectedName) || [])] : []
+  const selectedNeighborSet = new Set(selectedNeighbors.slice(0, GRAPH_RENDER_LIMITS.selectedNeighborLimit))
+  const visibleNames = new Set()
+
+  if (selectedName && entityByName.has(selectedName)) {
+    visibleNames.add(selectedName)
+    for (const name of selectedNeighborSet) visibleNames.add(name)
+  }
+
+  for (const entity of sortedEntities) {
+    if (visibleNames.size >= GRAPH_RENDER_LIMITS.maxNodes) break
+    if ((countByName[entity.name] || 0) === 0 && visibleNames.size >= GRAPH_RENDER_LIMITS.minCoreNodes) continue
+    visibleNames.add(entity.name)
+  }
+
+  const renderedEntities = sortedEntities.filter(entity => visibleNames.has(entity.name))
+  const seenRelations = new Set()
+  const selectedRelationNames = new Set()
+  const coreRelations = []
+
+  for (const rel of validRelations) {
+    const { source, target } = relationEndpoints(rel)
+    if (!visibleNames.has(source) || !visibleNames.has(target)) continue
+    const key = relationKey(rel)
+    if (seenRelations.has(key)) continue
+    seenRelations.add(key)
+    if (selectedName && (source === selectedName || target === selectedName)) {
+      selectedRelationNames.add(key)
+    } else {
+      coreRelations.push(rel)
+    }
+  }
+
+  const selectedRelations = validRelations.filter(rel => selectedRelationNames.has(relationKey(rel)))
+  const renderedRelations = [...selectedRelations, ...coreRelations].slice(0, GRAPH_RENDER_LIMITS.maxLinks)
+
+  return { entities: renderedEntities, relations: renderedRelations, hiddenCount: Math.max(0, sourceEntities.length - renderedEntities.length) }
+}
 
 // 3D Force Relaxation Layout to prevent clumping and overlap of planets/text labels
 function runSimple3DForceLayout(nodes, relations, iterations = 130) {
@@ -304,8 +454,9 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
     
     // Attraction along logical relations/links
     for (const rel of relations) {
-      const nodeA = nodeByName.get(rel.source)
-      const nodeB = nodeByName.get(rel.target)
+      const { source, target } = relationEndpoints(rel)
+      const nodeA = nodeByName.get(source)
+      const nodeB = nodeByName.get(target)
       if (!nodeA || !nodeB) continue
       
       const dx = nodeA.position.x - nodeB.position.x
@@ -319,8 +470,8 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
         const pullY = (dy / dist) * pull
         const pullZ = (dz / dist) * pull
         
-        const idxA = nodes.indexOf(nodeA)
-        const idxB = nodes.indexOf(nodeB)
+        const idxA = nodeA.layoutIndex
+        const idxB = nodeB.layoutIndex
         
         displacements[idxA].x -= pullX
         displacements[idxA].y -= pullY
@@ -355,13 +506,7 @@ function runSimple3DForceLayout(nodes, relations, iterations = 130) {
   }
 }
 
-function buildNodes(entities, relations) {
-  const relationCount = Object.create(null)
-  for (const rel of relations) {
-    relationCount[rel.source] = (relationCount[rel.source] || 0) + 1
-    relationCount[rel.target] = (relationCount[rel.target] || 0) + 1
-  }
-
+function buildNodes(entities, relations, relationCount) {
   const sorted = [...entities]
     .sort((a, b) => (relationCount[b.name] || 0) - (relationCount[a.name] || 0))
 
@@ -387,6 +532,7 @@ function buildNodes(entities, relations) {
       color: galaxy.color,
       weight,
       relationCount: relationCount[entity.name] || 0,
+      layoutIndex: index,
       position: new THREE.Vector3(preset[0], preset[1], preset[2]),
     }
   })
@@ -446,12 +592,16 @@ function syncRightPanelData(node) {
   const raw = node.raw || {}
   const typeLabel = raw.entity_type || raw.type || node.category || 'Unknown'
   const description = raw.description || raw.desc || raw.summary || raw.content || '该实体暂无描述。'
-  const relationItems = props.relations
-    .filter(rel => rel.source === name || rel.target === name || rel.source_id === node.id || rel.target_id === node.id)
+  const relationItems = (props.relations || [])
+    .filter(rel => {
+      const endpoint = relationEndpoints(rel)
+      return endpoint.source === name || endpoint.target === name || rel.source_id === node.id || rel.target_id === node.id
+    })
+    .slice(0, 80)
     .map(rel => {
-      const relationType = rel.relation_type || rel.rel || rel.type || '关联'
-      if (rel.source === name || rel.source_id === node.id) return `${name} → ${relationType} → ${rel.target}`
-      return `${rel.source} → ${relationType} → ${name}`
+      const endpoint = relationEndpoints(rel)
+      if (endpoint.source === name || rel.source_id === node.id) return `${name} → ${endpoint.type} → ${endpoint.target}`
+      return `${endpoint.source} → ${endpoint.type} → ${name}`
     })
   
   hudData.value = {
@@ -470,6 +620,8 @@ function syncRightPanelData(node) {
 
 function closeDetailPanel() {
   isNodeHovered.value = false
+  emit('select', null)
+  clearGraphHighlight()
 }
 
 // GSAP Switch Mode Transition Function
@@ -623,8 +775,8 @@ function initScene() {
   camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1200)
   camera.position.set(0, 0, 185)
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 0.92
@@ -676,7 +828,7 @@ function initScene() {
 
   // 3. Setup effects
   const renderPass = new RenderPass(scene, camera)
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.62, 0.42, 0.18)
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.46, 0.34, 0.22)
   composer = new EffectComposer(renderer)
   composer.addPass(renderPass)
   composer.addPass(bloomPass)
@@ -755,7 +907,7 @@ function createDust() {
   const colors = []
 
   // Global subtle stars
-  const globalCount = 1800
+  const globalCount = 900
   for (let i = 0; i < globalCount; i++) {
     const radius = 180 + Math.random() * 450
     const theta = Math.random() * Math.PI * 2
@@ -773,7 +925,7 @@ function createDust() {
   Object.keys(GALAXIES).forEach((key) => {
     const galaxy = GALAXIES[key]
     const color = new THREE.Color(galaxy.color)
-    const pCount = 300
+    const pCount = 120
     for (let j = 0; j < pCount; j++) {
       const u = Math.random()
       const r = (u * u) * 25 + 2.5
@@ -875,15 +1027,19 @@ function renderCosmos() {
 function createLinks(visibleNames, nodeByName) {
   const seen = new Set()
   flowParticles.length = 0
+  const pulseGeom = getCachedGeometry('flow-pulse-sphere', () => new THREE.SphereGeometry(0.24, 8, 8))
+  const allowFlowParticles = renderQuality.value !== 'ultra'
+  let flowCount = 0
 
-  for (const rel of props.relations) {
-    if (!visibleNames.has(rel.source) || !visibleNames.has(rel.target)) continue
-    const key = `${rel.source}->${rel.target}:${rel.relation_type || rel.rel || ''}`
+  for (const rel of renderedGraph.value.relations) {
+    const endpoint = relationEndpoints(rel)
+    if (!visibleNames.has(endpoint.source) || !visibleNames.has(endpoint.target)) continue
+    const key = relationKey(rel)
     if (seen.has(key)) continue
     seen.add(key)
 
-    const source = nodeByName.get(rel.source)
-    const target = nodeByName.get(rel.target)
+    const source = nodeByName.get(endpoint.source)
+    const target = nodeByName.get(endpoint.target)
     
     // 1. Connection lines
     const geometry = new THREE.BufferGeometry().setFromPoints([source.position, target.position])
@@ -894,10 +1050,13 @@ function createLinks(visibleNames, nodeByName) {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
-    linkGroup.add(new THREE.Line(geometry, material))
+    const line = new THREE.Line(geometry, material)
+    line.userData.graphLink = { source: endpoint.source, target: endpoint.target, type: endpoint.type }
+    linkGroup.add(line)
+
+    if (!allowFlowParticles || flowCount > 420) continue
 
     // 2. Glowing photon flow particle
-    const pulseGeom = new THREE.SphereGeometry(0.24, 8, 8)
     const pulseMat = new THREE.MeshBasicMaterial({
       color: target.color,
       transparent: true,
@@ -914,11 +1073,16 @@ function createLinks(visibleNames, nodeByName) {
       speed: 0.28 + Math.random() * 0.32,
       offset: Math.random()
     })
+    flowCount++
   }
 }
 
 function createPlanet(node) {
   const radius = visualRadius(node)
+  const roundedRadius = getRoundedRadius(radius)
+  const richPlanet = shouldUseRichPlanet(node)
+  const sphereSegments = richPlanet ? 32 : 16
+  const sphereRings = richPlanet ? 16 : 8
   const color = new THREE.Color(node.color)
   const darkColor = color.clone().multiplyScalar(0.34)
   const group = new THREE.Group()
@@ -926,7 +1090,7 @@ function createPlanet(node) {
   group.userData.node = node
 
   // 1. Layered planet body: dark glass shell + controlled emissive edge, not a blown-out light blob.
-  const sphereGeom = new THREE.SphereGeometry(radius, 48, 24)
+  const sphereGeom = getCachedGeometry(`sphere:${roundedRadius}:${sphereSegments}:${sphereRings}`, () => new THREE.SphereGeometry(roundedRadius, sphereSegments, sphereRings))
   const sphereMat = new THREE.MeshPhysicalMaterial({
     color: darkColor,
     emissive: color,
@@ -947,7 +1111,8 @@ function createPlanet(node) {
   group.add(sphere)
 
   // 2. Small inner core, intentionally dim so the 3D form remains readable.
-  const coreGeom = new THREE.SphereGeometry(radius * 0.26, 32, 16)
+  const coreRadius = getRoundedRadius(radius * 0.26, 0.04)
+  const coreGeom = getCachedGeometry(`core:${coreRadius}:${richPlanet ? 16 : 10}`, () => new THREE.SphereGeometry(coreRadius, richPlanet ? 16 : 10, richPlanet ? 8 : 6))
   const coreMat = new THREE.MeshBasicMaterial({
     color: color.clone().lerp(new THREE.Color('#ffffff'), 0.18),
     transparent: true,
@@ -960,7 +1125,8 @@ function createPlanet(node) {
   group.add(core)
 
   // 3. Controlled atmospheric halo.
-  const haloGeom = new THREE.SphereGeometry(radius * 1.65, 32, 16)
+  const haloRadius = getRoundedRadius(radius * 1.65)
+  const haloGeom = getCachedGeometry(`halo:${haloRadius}:${richPlanet ? 18 : 10}`, () => new THREE.SphereGeometry(haloRadius, richPlanet ? 18 : 10, richPlanet ? 10 : 6))
   const haloMat = new THREE.MeshBasicMaterial({
     color: color,
     transparent: true,
@@ -971,8 +1137,10 @@ function createPlanet(node) {
   const halo = new THREE.Mesh(haloGeom, haloMat)
   group.add(halo)
 
-  addPlanetSurfaceBands(group, node, radius, color)
-  addPlanetDetailShell(group, node, radius, color)
+  if (richPlanet) {
+    addPlanetSurfaceBands(group, node, radius, color)
+    addPlanetDetailShell(group, node, radius, color)
+  }
 
   const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: getGlowTexture(node.color),
@@ -987,9 +1155,9 @@ function createPlanet(node) {
   group.add(glowSprite)
 
   // 4. Broad glowing Saturnal rings, close to the reference "knowledge planet" look.
-  if (node.weight >= 6.4 || node.relationCount >= 1) {
+  if (richPlanet && (node.weight >= 6.4 || node.relationCount >= 1)) {
     const flatRing = new THREE.Mesh(
-      new THREE.RingGeometry(radius * 1.62, radius * 2.35, 160),
+      getCachedGeometry(`flat-ring:${getRoundedRadius(radius * 1.62)}:${getRoundedRadius(radius * 2.35)}`, () => new THREE.RingGeometry(getRoundedRadius(radius * 1.62), getRoundedRadius(radius * 2.35), 96)),
       new THREE.MeshBasicMaterial({
         color: color,
         side: THREE.DoubleSide,
@@ -1005,7 +1173,7 @@ function createPlanet(node) {
     group.add(flatRing)
 
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 2.05, radius * 0.028, 10, 160),
+      getCachedGeometry(`main-ring:${getRoundedRadius(radius * 2.05)}:${getRoundedRadius(radius * 0.028, 0.006)}`, () => new THREE.TorusGeometry(getRoundedRadius(radius * 2.05), getRoundedRadius(radius * 0.028, 0.006), 8, 96)),
       new THREE.MeshBasicMaterial({
         color: color,
         transparent: true,
@@ -1032,9 +1200,9 @@ function createPlanet(node) {
   }
 
   // 5. Wireframe concept shells add the gem/polyhedron variation visible in the reference.
-  if ((node.weight >= 6.8 || node.relationCount >= 2) && ['Abstract', 'Art', 'Creation'].includes(node.category)) {
+  if (richPlanet && (node.weight >= 6.8 || node.relationCount >= 2) && ['Abstract', 'Art', 'Creation'].includes(node.category)) {
     const wire = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(radius * 1.34, 1),
+      getCachedGeometry(`wire:${getRoundedRadius(radius * 1.34)}`, () => new THREE.IcosahedronGeometry(getRoundedRadius(radius * 1.34), 1)),
       new THREE.MeshBasicMaterial({
         color,
         wireframe: true,
@@ -1052,13 +1220,13 @@ function createPlanet(node) {
   }
 
   // 6. Orbiting little satellite moons
-  if (node.weight >= 8.8 || node.relationCount >= 5) {
+  if (richPlanet && (node.weight >= 8.8 || node.relationCount >= 5)) {
     const moonGroup = new THREE.Group()
     const moonRadius = radius * 0.14
     const moonCount = node.weight >= 9.5 ? 3 : 2
     for (let i = 0; i < moonCount; i++) {
       const moon = new THREE.Mesh(
-        new THREE.SphereGeometry(moonRadius * (i === 0 ? 1 : 0.72), 16, 16),
+        getCachedGeometry(`moon:${getRoundedRadius(moonRadius * (i === 0 ? 1 : 0.72), 0.03)}`, () => new THREE.SphereGeometry(getRoundedRadius(moonRadius * (i === 0 ? 1 : 0.72), 0.03), 10, 8)),
         new THREE.MeshBasicMaterial({
           color: new THREE.Color(i === 0 ? '#ffffff' : node.color),
           transparent: true,
@@ -1080,7 +1248,7 @@ function createPlanet(node) {
   }
 
   // 7. Local star dust and semantic debris around important/highly connected nodes.
-  if (node.weight >= 7 || node.relationCount >= 3) {
+  if (richPlanet && (node.weight >= 7 || node.relationCount >= 3)) {
     group.add(createLocalDustCluster(node, radius, color))
   }
 
@@ -1341,7 +1509,7 @@ function clearGraphObjects() {
     if (!group) continue
     scene.remove(group)
     group.traverse(obj => {
-      obj.geometry?.dispose?.()
+      if (obj.geometry && !obj.geometry.userData?.cachedGeometry) obj.geometry.dispose?.()
       if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose?.())
       else obj.material?.dispose?.()
       if (obj.element?.remove) obj.element.remove()
@@ -1451,6 +1619,7 @@ function findNodeFromHit(hits) {
 function closePopup() {
   isNodeHovered.value = false
   emit('select', null)
+  clearGraphHighlight()
   resetView()
 }
 
@@ -1484,6 +1653,7 @@ function focusNode(node) {
   cameraTarget.copy(targetCam)
   animateCameraTo(targetCam, focusTarget.clone(), 0.95)
   controls.autoRotate = false
+  applyGraphHighlight(node)
 }
 
 function isSelectedNode(node) {
@@ -1495,10 +1665,104 @@ function isHoveredNode(node) {
   return !!hoveredNode && (hoveredNode.id === node.id || hoveredNode.name === node.name)
 }
 
+function selectedNeighborNames() {
+  const selected = props.selectedEntity
+  if (!selected?.name) return new Set()
+  const names = new Set([selected.name])
+  for (const rel of props.relations || []) {
+    const endpoint = relationEndpoints(rel)
+    if (endpoint.source === selected.name) names.add(endpoint.target)
+    if (endpoint.target === selected.name) names.add(endpoint.source)
+  }
+  return names
+}
+
+function isRelatedToSelectedNode(node) {
+  if (!props.selectedEntity?.name) return false
+  return selectedNeighborNames().has(node.name)
+}
+
+function targetScaleForNode(node) {
+  if (!node) return 1
+  if (isSelectedNode(node)) return 1.32
+  if (isRelatedToSelectedNode(node)) return 1.08
+  return 1
+}
+
+function setMaterialOpacity(object, opacityScale, emphasize = false) {
+  object.traverse(child => {
+    const materials = Array.isArray(child.material) ? child.material : child.material ? [child.material] : []
+    for (const material of materials) {
+      if (material.userData.baseOpacity == null) {
+        material.userData.baseOpacity = material.opacity ?? 1
+      }
+      material.transparent = true
+      material.opacity = THREE.MathUtils.clamp(material.userData.baseOpacity * opacityScale, 0.025, 1)
+      if ('emissiveIntensity' in material) {
+        if (material.userData.baseEmissiveIntensity == null) {
+          material.userData.baseEmissiveIntensity = material.emissiveIntensity ?? 0
+        }
+        material.emissiveIntensity = material.userData.baseEmissiveIntensity * (emphasize ? 1.9 : opacityScale < 0.5 ? 0.45 : 1)
+      }
+    }
+  })
+}
+
+function applyGraphHighlight(node) {
+  if (!nodeGroup || !linkGroup) return
+  const relatedNames = new Set([node.name])
+  for (const rel of props.relations || []) {
+    const endpoint = relationEndpoints(rel)
+    if (endpoint.source === node.name) relatedNames.add(endpoint.target)
+    if (endpoint.target === node.name) relatedNames.add(endpoint.source)
+  }
+
+  nodeGroup.children.forEach(group => {
+    const item = group.userData.node
+    if (!item) return
+    const selected = item.name === node.name
+    const related = relatedNames.has(item.name)
+    setMaterialOpacity(group, related ? 1 : 0.18, selected)
+    gsap.to(group.scale, {
+      x: selected ? 1.32 : related ? 1.08 : 0.92,
+      y: selected ? 1.32 : related ? 1.08 : 0.92,
+      z: selected ? 1.32 : related ? 1.08 : 0.92,
+      duration: 0.28,
+      overwrite: 'auto'
+    })
+  })
+
+  linkGroup.children.forEach(line => {
+    const link = line.userData.graphLink
+    if (!link?.source || !line.material) return
+    if (line.material.userData.baseOpacity == null) {
+      line.material.userData.baseOpacity = line.material.opacity ?? 1
+    }
+    const active = link.source === node.name || link.target === node.name
+    line.material.opacity = active ? Math.max(0.5, line.material.userData.baseOpacity * 4.2) : 0.035
+    line.material.linewidth = active ? 2 : 1
+  })
+}
+
+function clearGraphHighlight() {
+  if (!nodeGroup && !linkGroup) return
+  nodeGroup?.children.forEach(group => {
+    setMaterialOpacity(group, 1, false)
+    gsap.to(group.scale, { x: 1, y: 1, z: 1, duration: 0.24, overwrite: 'auto' })
+  })
+  linkGroup?.children.forEach(line => {
+    if (!line.material) return
+    line.material.opacity = line.material.userData.baseOpacity ?? 0.11
+    line.material.linewidth = 1
+  })
+}
+
 function updateLabelVisibility() {
   if (!camera || !renderer || !labelObjects.length) return
 
-  const maxVisible = viewMode.value === 'topology' ? 16 : 24
+  const hasSelection = !!props.selectedEntity?.name
+  const activeNeighborNames = selectedNeighborNames()
+  const maxVisible = hasSelection ? 44 : viewMode.value === 'topology' ? 14 : 22
   const candidates = []
   const width = renderer.domElement.clientWidth || 1
   const height = renderer.domElement.clientHeight || 1
@@ -1521,6 +1785,7 @@ function updateLabelVisibility() {
 
     const selected = isSelectedNode(node)
     const hovered = isHoveredNode(node)
+    const related = activeNeighborNames.has(node.name)
     const sphereOnScreen =
       labelScreenPos.z > -1 &&
       labelScreenPos.z < 1 &&
@@ -1530,14 +1795,14 @@ function updateLabelVisibility() {
       labelScreenPos.y < 0.98
 
     const priority = node.weight + node.relationCount * 0.42
-    const distanceLimit = selected || hovered
+    const distanceLimit = selected || hovered || related
       ? 180
       : node.weight >= 9
         ? 116
         : node.relationCount >= 5
           ? 96
           : 78
-    const readable = sphereOnScreen && (selected || hovered || (distance < distanceLimit && priority >= 5.8))
+    const readable = sphereOnScreen && (selected || hovered || related || (distance < distanceLimit && priority >= 6.2))
 
     if (readable) {
       const sphereX = (labelScreenPos.x * 0.5 + 0.5) * width
@@ -1551,10 +1816,11 @@ function updateLabelVisibility() {
         distance,
         selected,
         hovered,
+        related,
         priority,
         x: sphereX,
         y: sphereY - screenRadius - 4,
-        score: (selected ? 1200 : 0) + (hovered ? 800 : 0) + priority * 34 - distance,
+        score: (selected ? 1400 : 0) + (hovered ? 900 : 0) + (related ? 620 : 0) + priority * 34 - distance,
       })
     } else {
       el.style.display = 'none'
@@ -1576,13 +1842,15 @@ function updateLabelVisibility() {
     const distanceFade = THREE.MathUtils.clamp(1 - (item.distance - 78) / 138, 0.24, 1)
     const opacity = item.selected || item.hovered
       ? 1
+      : item.related
+        ? 0.92
       : Math.min(item.labelObj.baseOpacity, distanceFade)
     el.style.display = 'block'
     el.style.left = `${item.x.toFixed(1)}px`
     el.style.top = `${item.y.toFixed(1)}px`
     el.style.setProperty('--label-opacity', opacity.toFixed(2))
     el.classList.toggle('is-focus', item.selected)
-    el.classList.toggle('is-hovered', item.hovered)
+    el.classList.toggle('is-hovered', item.hovered || item.related)
   }
 }
 
@@ -1599,7 +1867,8 @@ function updateHoverRaycaster() {
       if (hoveredNode) {
         const prevGroup = nodeObjects.get(hoveredNode.id)
         if (prevGroup) {
-          gsap.to(prevGroup.scale, { x: 1.0, y: 1.0, z: 1.0, duration: 0.35, overwrite: 'auto' })
+          const prevScale = targetScaleForNode(hoveredNode)
+          gsap.to(prevGroup.scale, { x: prevScale, y: prevScale, z: prevScale, duration: 0.35, overwrite: 'auto' })
         }
       }
       
@@ -1609,7 +1878,8 @@ function updateHoverRaycaster() {
       // Scale up current hovered node smoothly using GSAP
       const currentGroup = nodeObjects.get(node.id)
       if (currentGroup) {
-        gsap.to(currentGroup.scale, { x: 1.18, y: 1.18, z: 1.18, duration: 0.35, overwrite: 'auto' })
+        const hoverScale = Math.max(1.18, targetScaleForNode(node))
+        gsap.to(currentGroup.scale, { x: hoverScale, y: hoverScale, z: hoverScale, duration: 0.35, overwrite: 'auto' })
       }
       
     }
@@ -1618,7 +1888,8 @@ function updateHoverRaycaster() {
     if (hoveredNode) {
       const prevGroup = nodeObjects.get(hoveredNode.id)
       if (prevGroup) {
-        gsap.to(prevGroup.scale, { x: 1.0, y: 1.0, z: 1.0, duration: 0.35, overwrite: 'auto' })
+        const prevScale = targetScaleForNode(hoveredNode)
+        gsap.to(prevGroup.scale, { x: prevScale, y: prevScale, z: prevScale, duration: 0.35, overwrite: 'auto' })
       }
       hoveredNode = null
     }
@@ -1679,6 +1950,7 @@ function resize() {
 
 function animate() {
   animationId = requestAnimationFrame(animate)
+  animationFrameTick += 1
   const elapsed = performance.now() * 0.001
 
   if (dust) {
@@ -1695,7 +1967,9 @@ function animate() {
   }
 
   if (nodeGroup) {
+    const animateEvery = renderQuality.value === 'ultra' ? 4 : renderQuality.value === 'low' ? 3 : 1
     nodeGroup.children.forEach((group, index) => {
+      if (index % animateEvery !== animationFrameTick % animateEvery) return
       group.rotation.y += 0.002 + (index % 5) * 0.00018
       const ring = group.children.find(child => child.userData.isRing)
       if (ring) ring.rotation.z += 0.005
@@ -1714,13 +1988,15 @@ function animate() {
   controls.update()
 
   // Real-time hover detection
-  updateHoverRaycaster()
+  const hoverInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 8
+  if (animationFrameTick % hoverInterval === 0) updateHoverRaycaster()
 
   // Real-time distance bloom flaring
   updateCameraDistanceGlow()
 
   // Bind labels to planets while hiding distant and low-priority labels.
-  updateLabelVisibility()
+  const labelInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 6
+  if (animationFrameTick % labelInterval === 0 || isCameraAnimating) updateLabelVisibility()
 
   composer.render()
   labelRenderer.render(scene, camera)
@@ -1762,14 +2038,17 @@ function disposeScene() {
   labelLayer = null
   spriteTextureCache.forEach(texture => texture.dispose?.())
   spriteTextureCache.clear()
+  geometryCache.forEach(geometry => geometry.dispose?.())
+  geometryCache.clear()
 }
 
-// Watch props.entities and props.relations directly for instant asynchronous data load triggers!
-watch([() => props.entities, () => props.relations], () => {
+watch(graphSignature, (signature) => {
+  if (signature === lastGraphSignature) return
+  lastGraphSignature = signature
   nextTick(() => {
     renderCosmos()
   })
-}, { deep: true, immediate: true })
+}, { immediate: true })
 
 watch(() => props.selectedEntity, focusSelected)
 
@@ -1960,6 +2239,17 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
 .system-time .time-value {
   color: #ffffff;
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.render-scope {
+  font-family: monospace;
+  font-size: 10px;
+  color: rgba(125, 211, 252, 0.72);
+  padding: 4px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  background: rgba(14, 165, 233, 0.06);
+  white-space: nowrap;
 }
 
 /* 3. Left Glassmorphic Sidebar HUD */
@@ -2165,6 +2455,9 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   transform: translateX(-24px);
   pointer-events: none;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Faint neon glowing border on active hover status */
@@ -2184,8 +2477,25 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   padding: 16px;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-height: inherit;
   overflow-y: auto;
+  overscroll-behavior: contain;
   box-sizing: border-box;
+}
+
+.panel-content::-webkit-scrollbar {
+  width: 7px;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.24);
+  border-radius: 999px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.28);
 }
 
 .panel-node-header {
@@ -2295,6 +2605,18 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.panel-memory-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-memory-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
 }
 
 .panel-memory-list .memory-item {
@@ -2407,6 +2729,10 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   }
 
   .system-time {
+    display: none;
+  }
+
+  .render-scope {
     display: none;
   }
 

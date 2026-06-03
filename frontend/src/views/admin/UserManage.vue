@@ -112,7 +112,21 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ElButton,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElMessage,
+  ElMessageBox,
+  ElOption,
+  ElPagination,
+  ElSelect,
+  ElTable,
+  ElTableColumn,
+} from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
 import request from '../../api/request'
 
@@ -237,32 +251,32 @@ onMounted(loadUsers)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  gap: 12px;
+  margin-bottom: 22px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
 .toolbar-left {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
 }
 
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
-  padding: 0 12px;
-  height: 36px;
-  background: var(--color-surface);
-  width: 260px;
-  backdrop-filter: blur(8px);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 8px;
+  padding: 0 14px;
+  height: 38px;
+  background: rgba(8, 15, 30, 0.82);
+  width: 270px;
+  backdrop-filter: blur(12px);
 }
 
 .search-box .el-icon {
-  color: var(--color-text-subtle);
-  margin-right: 8px;
+  color: #94a3b8;
+  margin-right: 10px;
   font-size: 16px;
 }
 
@@ -274,102 +288,105 @@ onMounted(loadUsers)
 
 .search-box :deep(.el-input__inner) {
   font-size: 13px;
-  color: var(--color-text) !important;
+  color: #eaf2ff !important;
 }
 
 .table-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-xs);
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 9px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
 }
 
 .user-cell {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .user-cell .avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
 .user-cell .user-name {
-  font-weight: 650;
+  font-weight: 700;
   font-size: 14px;
-  color: var(--color-text);
+  color: #eaf2ff;
 }
 
 .user-cell .user-id {
   font-size: 11px;
-  color: var(--color-text-subtle);
-  margin-top: 2px;
+  color: #94a3b8;
+  margin-top: 3px;
 }
 
 .role-tag {
   display: inline-block;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 600;
 }
 
 .role-admin {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 .role-user {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: rgba(125, 211, 252, 0.15);
+  color: #7dd3fc;
+  border: 1px solid rgba(125, 211, 252, 0.3);
 }
 
 .status-switch {
-  width: 40px;
-  height: 20px;
-  border-radius: 10px;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
   position: relative;
   cursor: pointer;
   transition: all 0.3s;
 }
 
 .status-switch.on {
-  background: var(--color-success);
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.3);
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.4);
 }
 
 .status-switch.off {
-  background: rgba(90, 106, 130, 0.4);
+  background: rgba(100, 116, 139, 0.5);
 }
 
 .status-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: 3px;
   width: 16px;
   height: 16px;
-  background: var(--color-white);
+  background: #ffffff;
   border-radius: 50%;
   transition: left 0.3s;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
 }
 
 .status-switch.on::after {
-  left: 22px;
+  left: 23px;
 }
 
 .status-switch.off::after {
-  left: 2px;
+  left: 3px;
 }
 
 .actions {
@@ -378,49 +395,51 @@ onMounted(loadUsers)
 }
 
 .action-btn {
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 5px 10px;
+  border-radius: 7px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   border: none;
   background: transparent;
-  transition: all 0.2s;
+  transition: all 0.25s;
 }
 
 .action-btn.edit {
-  color: var(--color-primary);
+  color: #7dd3fc;
 }
 
 .action-btn.edit:hover {
-  background: var(--color-primary-soft);
+  background: rgba(125, 211, 252, 0.15);
 }
 
 .action-btn.reset {
-  color: var(--color-warning);
+  color: #fbbf24;
 }
 
 .action-btn.reset:hover {
-  background: var(--color-warning-soft);
+  background: rgba(251, 191, 36, 0.15);
 }
 
 .action-btn.delete {
-  color: var(--color-danger);
+  color: #f87171;
 }
 
 .action-btn.delete:hover {
-  background: var(--color-danger-soft);
+  background: rgba(248, 113, 113, 0.15);
 }
 
 .pagination {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: 18px;
 }
 
 .pagination .info {
   font-size: 13px;
-  color: var(--color-text-subtle);
+  color: #94a3b8;
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {

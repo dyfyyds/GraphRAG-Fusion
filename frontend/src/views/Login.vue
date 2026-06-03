@@ -68,7 +68,8 @@
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../store/user'
-import { ElMessage } from 'element-plus'
+import 'element-plus/dist/index.css'
+import { ElButton, ElCheckbox, ElForm, ElFormItem, ElIcon, ElInput, ElMessage } from 'element-plus'
 import { User, Lock, Message } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -162,73 +163,108 @@ function getErrorMessage(err) {
   align-items: center;
   justify-content: center;
   padding: 32px 16px;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(ellipse at 30% 30%, rgba(14, 165, 233, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 70% 70%, rgba(139, 92, 246, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 50%, rgba(232, 121, 249, 0.02) 0%, transparent 50%),
-    var(--color-bg);
+    radial-gradient(circle at 20% 30%, rgba(125, 211, 252, 0.08), transparent 30%),
+    radial-gradient(circle at 75% 65%, rgba(167, 139, 250, 0.06), transparent 30%),
+    radial-gradient(circle at 50% 85%, rgba(232, 121, 249, 0.05), transparent 30%);
+  pointer-events: none;
+}
+
+.login-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10% 15%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 25% 35%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 40% 55%, rgba(125, 211, 252, 0.6), transparent),
+    radial-gradient(1px 1px at 55% 25%, rgba(255, 255, 255, 0.45), transparent),
+    radial-gradient(1px 1px at 70% 65%, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1px 1px at 85% 45%, rgba(167, 139, 250, 0.5), transparent),
+    radial-gradient(1px 1px at 15% 75%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 30% 90%, rgba(125, 211, 252, 0.45), transparent);
+  pointer-events: none;
+  animation: starTwinkle 6s ease-in-out infinite;
+}
+
+@keyframes starTwinkle {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 .login-card {
   width: min(420px, 100%);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md), 0 0 60px rgba(14, 165, 233, 0.06);
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 12px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(125, 211, 252, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
   padding: 34px 38px;
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px);
   position: relative;
+  z-index: 1;
 }
 
 .login-card::before {
   content: '';
   position: absolute;
   inset: -1px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), transparent 40%, transparent 60%, rgba(139, 92, 246, 0.15));
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.2), transparent 40%, transparent 60%, rgba(167, 139, 250, 0.2));
   z-index: -1;
   pointer-events: none;
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .logo {
-  width: 56px;
-  height: 56px;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
-  border-radius: 14px;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #7dd3fc, #a78bfa);
+  border-radius: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
-  box-shadow: 0 0 24px rgba(14, 165, 233, 0.3);
+  margin-bottom: 16px;
+  box-shadow: 0 0 28px rgba(125, 211, 252, 0.4);
   position: relative;
 }
 
 .logo::after {
   content: '';
   position: absolute;
-  inset: -3px;
-  border-radius: 17px;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(139, 92, 246, 0.2));
+  inset: -4px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.3), rgba(167, 139, 250, 0.3));
   z-index: -1;
-  filter: blur(8px);
+  filter: blur(10px);
 }
 
 .logo svg {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
 }
 
 .login-title {
-  font-size: 22px;
-  color: var(--color-text);
-  font-weight: 750;
+  font-size: 24px;
+  color: #eaf2ff;
+  font-weight: 800;
   margin: 0;
-  background: linear-gradient(90deg, #fff, var(--color-cyan));
+  background: linear-gradient(90deg, #ffffff, #7dd3fc);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -236,7 +272,7 @@ function getErrorMessage(err) {
 
 .login-subtitle {
   font-size: 13px;
-  color: var(--color-text-muted);
+  color: #94a3b8;
   margin-top: 8px;
   margin-bottom: 0;
 }
@@ -254,92 +290,109 @@ function getErrorMessage(err) {
   grid-template-columns: 1fr 1fr;
   gap: 4px;
   padding: 4px;
-  margin-bottom: 22px;
-  background: var(--color-surface-muted);
+  margin-bottom: 24px;
+  background: rgba(8, 15, 30, 0.82);
   border-radius: 8px;
-  border: 1px solid var(--color-border-soft);
+  border: 1px solid rgba(125, 211, 252, 0.15);
 }
 
 .auth-tabs button {
-  height: 36px;
+  height: 38px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
-  color: var(--color-text-muted);
+  color: #94a3b8;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s;
+}
+
+.auth-tabs button:hover {
+  color: #eaf2ff;
 }
 
 .auth-tabs button.active {
-  background: var(--color-surface-hover);
-  color: var(--color-primary);
-  font-weight: 650;
-  box-shadow: 0 0 12px rgba(14, 165, 233, 0.1);
-  border: 1px solid rgba(14, 165, 233, 0.2);
+  background: rgba(37, 99, 235, 0.22);
+  color: #7dd3fc;
+  font-weight: 700;
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.15);
+  border: 1px solid rgba(125, 211, 252, 0.3);
 }
 
 .form-label {
   display: block;
-  font-size: 14px;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  color: #93c5fd;
   margin-bottom: 6px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .login-card :deep(.el-input__wrapper) {
-  border-radius: 8px;
-  height: 44px;
-  background: var(--color-surface-solid) !important;
+  border-radius: 7px;
+  height: 46px;
+  background: rgba(8, 15, 30, 0.82) !important;
+  border: 1px solid rgba(125, 211, 252, 0.22) !important;
 }
 
 .login-card :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px var(--color-border-glow) inset !important;
+  border-color: rgba(125, 211, 252, 0.56) !important;
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.56) inset !important;
 }
 
 .login-card :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px var(--color-primary) inset, 0 0 0 3px var(--color-primary-soft) !important;
+  border-color: rgba(125, 211, 252, 0.56) !important;
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.56) inset, 0 0 0 3px rgba(125, 211, 252, 0.12) !important;
 }
 
 .login-card :deep(.el-input__prefix .el-icon) {
-  color: var(--color-text-subtle);
+  color: #94a3b8;
+}
+
+.login-card :deep(.el-input__inner) {
+  color: #eaf2ff;
+}
+
+.login-card :deep(.el-input__inner::placeholder) {
+  color: #64748b;
 }
 
 .login-options {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 16px 0;
+  margin: 18px 0;
 }
 
 .forgot-link {
   font-size: 13px;
-  color: var(--color-primary);
+  color: #7dd3fc;
   text-decoration: none;
   transition: color 0.2s;
 }
 
 .forgot-link:hover {
-  color: var(--color-primary-strong);
+  color: #bae6fd;
   text-decoration: underline;
 }
 
 .login-btn {
   width: 100%;
-  height: 44px;
+  height: 46px;
   border-radius: 8px;
   font-size: 15px;
-  font-weight: 650;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
+  font-weight: 700;
+  background: #7dd3fc;
+  color: #07111f;
   border: none;
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+  box-shadow: 0 0 18px rgba(125, 211, 252, 0.4);
   transition: all 0.3s;
 }
 
 .login-btn:hover {
-  background: linear-gradient(135deg, var(--color-primary-strong), var(--color-purple));
-  box-shadow: 0 0 30px rgba(14, 165, 233, 0.45);
-  transform: translateY(-1px);
+  background: #bae6fd;
+  box-shadow: 0 0 28px rgba(125, 211, 252, 0.55);
+  transform: translateY(-2px);
 }
 
 @media (max-width: 480px) {

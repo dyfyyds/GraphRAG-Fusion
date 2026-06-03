@@ -62,14 +62,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import * as echarts from 'echarts'
+import { ref, onMounted, computed, nextTick } from 'vue'
+import { ElEmpty } from 'element-plus'
+import * as echarts from 'echarts/core'
+import { LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import request from '../../api/request'
+
+echarts.use([LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const stats = ref({})
 const trend = ref([])
 const hotQuestions = ref([])
 const docTypes = ref([])
+const healthLoading = ref(false)
 const trendChartRef = ref()
 const pieChartRef = ref()
 
@@ -111,6 +118,14 @@ const statCards = computed(() => [
 const systemStatus = computed(() => {
   const raw = stats.value.system_status
   if (Array.isArray(raw)) return raw
+  if (healthLoading.value) {
+    return [{
+      name: '系统健康检查',
+      status: 'warning',
+      statusText: '检测中',
+      detail: '后台检测服务连接状态',
+    }]
+  }
   return []
 })
 
@@ -198,31 +213,47 @@ function renderPieChart() {
   })
 }
 
+function renderChartsLater() {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      renderTrendChart()
+      renderPieChart()
+    })
+  })
+}
+
+async function loadSystemHealth() {
+  healthLoading.value = true
+  try {
+    const health = await request.get('/dashboard/system-health')
+    if (Array.isArray(health) && health.length) {
+      stats.value = {
+        ...stats.value,
+        system_status: health.map(svc => ({
+          name: svc.name,
+          status: svc.status,
+          statusText: statusTextOf(svc.status),
+          detail: svc.detail || '',
+        })),
+      }
+    }
+  } catch {
+  } finally {
+    healthLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
-    const [s, t, h, d, health] = await Promise.all([
-      request.get('/dashboard/stats'),
-      request.get('/dashboard/trend'),
-      request.get('/dashboard/hot-questions'),
-      request.get('/dashboard/doc-types').catch(() => []),
-      request.get('/dashboard/system-health').catch(() => []),
-    ])
-    stats.value = s
-    trend.value = t
-    hotQuestions.value = h
-    docTypes.value = Array.isArray(d) ? d : (d?.list || [])
-    if (Array.isArray(health) && health.length) {
-      stats.value.system_status = health.map(svc => ({
-        name: svc.name,
-        status: svc.status,
-        statusText: statusTextOf(svc.status),
-        detail: svc.detail || '',
-      }))
-    }
+    const overview = await request.get('/dashboard/overview')
+    stats.value = overview.stats || {}
+    trend.value = overview.trend || []
+    hotQuestions.value = overview.hotQuestions || []
+    docTypes.value = Array.isArray(overview.docTypes) ? overview.docTypes : []
   } catch {}
 
-  renderTrendChart()
-  renderPieChart()
+  renderChartsLater()
+  loadSystemHealth()
 })
 
 function statusTextOf(status) {
@@ -241,20 +272,20 @@ function statusTextOf(status) {
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 18px;
+  margin-bottom: 26px;
 }
 .stat-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  box-shadow: var(--shadow-xs);
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 10px;
+  padding: 22px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.4);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  backdrop-filter: blur(8px);
-  transition: all 0.25s ease;
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
 }
@@ -262,43 +293,45 @@ function statusTextOf(status) {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.03), transparent 60%);
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.04), transparent 60%);
   pointer-events: none;
 }
 .stat-card:hover {
-  border-color: var(--color-border-glow);
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.42);
+  box-shadow: 0 0 24px rgba(125, 211, 252, 0.2);
+  transform: translateY(-3px);
 }
 .stat-card .info h3 {
   font-size: 13px;
-  color: var(--color-text-muted);
-  font-weight: 550;
+  color: #93c5fd;
+  font-weight: 700;
   margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 .stat-card .info .value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--color-text);
+  font-size: 30px;
+  font-weight: 800;
+  color: #eaf2ff;
 }
 .stat-card .info .trend {
   font-size: 12px;
   margin-top: 6px;
+  font-weight: 600;
 }
 .trend.up {
-  color: var(--color-success);
+  color: #34d399;
 }
 .trend.down {
-  color: var(--color-danger);
+  color: #f87171;
 }
 .stat-card .icon-box {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-md);
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
 }
 .stat-card .icon-box svg {
   width: 28px;
@@ -306,58 +339,58 @@ function statusTextOf(status) {
   fill: #fff;
 }
 .icon-blue {
-  background: linear-gradient(135deg, #0ea5e9, #0369a1);
-  box-shadow: 0 0 16px rgba(14, 165, 233, 0.3);
+  background: linear-gradient(135deg, #38bdf8, #0284c7);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.4);
 }
 .icon-green {
   background: linear-gradient(135deg, #34d399, #059669);
-  box-shadow: 0 0 16px rgba(52, 211, 153, 0.3);
+  box-shadow: 0 0 18px rgba(52, 211, 153, 0.4);
 }
 .icon-orange {
   background: linear-gradient(135deg, #fbbf24, #d97706);
-  box-shadow: 0 0 16px rgba(251, 191, 36, 0.3);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.4);
 }
 .icon-red {
   background: linear-gradient(135deg, #f87171, #dc2626);
-  box-shadow: 0 0 16px rgba(248, 113, 113, 0.3);
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.4);
 }
 
 /* Charts Row */
 .charts-row {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 18px;
+  margin-bottom: 26px;
 }
 .chart-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  box-shadow: var(--shadow-xs);
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 10px;
+  padding: 22px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.4);
   min-width: 0;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
 }
 .chart-card h3 {
   font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 20px;
+  font-weight: 700;
+  margin: 0 0 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--color-text);
+  color: #eaf2ff;
 }
 .chart-card h3 .subtitle {
   font-size: 12px;
-  color: var(--color-text-subtle);
-  font-weight: 400;
+  color: #94a3b8;
+  font-weight: 500;
 }
 
 /* Bottom Row */
 .bottom-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
 }
 
 /* Hot Questions */
@@ -369,56 +402,58 @@ function statusTextOf(status) {
 .hot-list li {
   display: flex;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--color-border-soft);
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.1);
 }
 .hot-list li:last-child {
   border-bottom: none;
 }
 .hot-rank {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  font-weight: 600;
-  margin-right: 12px;
+  font-weight: 700;
+  margin-right: 14px;
   flex-shrink: 0;
 }
 .rank-1 {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-  box-shadow: 0 0 8px rgba(248, 113, 113, 0.2);
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.25);
 }
 .rank-2 {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
-  box-shadow: 0 0 8px rgba(251, 191, 36, 0.2);
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.25);
 }
 .rank-3 {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  box-shadow: 0 0 8px rgba(14, 165, 233, 0.2);
+  background: rgba(125, 211, 252, 0.15);
+  color: #7dd3fc;
+  box-shadow: 0 0 10px rgba(125, 211, 252, 0.25);
 }
 .rank-n {
-  background: var(--color-surface-muted);
-  color: var(--color-text-subtle);
+  background: rgba(8, 15, 30, 0.82);
+  color: #94a3b8;
+  border: 1px solid rgba(125, 211, 252, 0.12);
 }
 .hot-question {
   flex: 1;
   font-size: 13px;
-  color: var(--color-text);
+  color: #eaf2ff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .hot-count {
   font-size: 12px;
-  color: var(--color-text-subtle);
-  margin-left: 12px;
+  color: #94a3b8;
+  margin-left: 14px;
   flex-shrink: 0;
+  font-weight: 600;
 }
 
 /* System Status */
@@ -431,8 +466,8 @@ function statusTextOf(status) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--color-border-soft);
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.1);
 }
 .status-item:last-child {
   border-bottom: none;
@@ -440,14 +475,14 @@ function statusTextOf(status) {
 .status-item .label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 14px;
   min-width: 0;
 }
 .status-copy {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 .status-copy span,
@@ -457,46 +492,51 @@ function statusTextOf(status) {
   white-space: nowrap;
 }
 .status-copy span {
-  color: var(--color-text);
+  color: #eaf2ff;
+  font-weight: 600;
 }
 .status-copy small {
-  color: var(--color-text-subtle);
+  color: #94a3b8;
   font-size: 12px;
 }
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .status-dot.online {
-  background: var(--color-success);
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.6);
 }
 .status-dot.warning {
-  background: var(--color-warning);
-  box-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+  background: #fbbf24;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.6);
 }
 .status-dot.offline {
-  background: var(--color-danger);
-  box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+  background: #f87171;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.6);
 }
 .status-badge {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 600;
 }
 .badge-online {
-  background: var(--color-success-soft);
-  color: var(--color-success);
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
 }
 .badge-warning {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
 }
 .badge-offline {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 @media (max-width: 1200px) {
@@ -516,7 +556,7 @@ function statusTextOf(status) {
   }
 
   .stat-card {
-    padding: 16px;
+    padding: 18px;
   }
 }
 </style>

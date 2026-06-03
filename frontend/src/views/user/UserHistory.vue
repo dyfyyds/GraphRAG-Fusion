@@ -94,7 +94,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElDialog, ElEmpty, ElIcon, ElInput, ElMessage, ElMessageBox, ElPagination } from 'element-plus'
 import { Search, Document } from '@element-plus/icons-vue'
 import request from '../../api/request'
 
@@ -197,7 +197,7 @@ onMounted(loadMessages)
 
 <style scoped>
 .user-history-page {
-  padding: 24px;
+  padding: 26px;
   max-width: 980px;
 }
 
@@ -205,32 +205,32 @@ onMounted(loadMessages)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  gap: 12px;
+  margin-bottom: 22px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
 .toolbar-left {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
 }
 
 .search-box {
   display: flex;
   align-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
-  padding: 0 12px;
-  height: 36px;
-  background: var(--color-surface);
-  width: 300px;
-  backdrop-filter: blur(8px);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 8px;
+  padding: 0 14px;
+  height: 38px;
+  background: rgba(8, 15, 30, 0.82);
+  width: 310px;
+  backdrop-filter: blur(12px);
 }
 
 .search-box .el-icon {
-  color: var(--color-text-subtle);
-  margin-right: 8px;
+  color: #94a3b8;
+  margin-right: 10px;
   font-size: 16px;
 }
 
@@ -242,12 +242,13 @@ onMounted(loadMessages)
 
 .search-box :deep(.el-input__inner) {
   font-size: 13px;
-  color: var(--color-text) !important;
+  color: #eaf2ff !important;
 }
 
 .record-count {
   font-size: 13px;
-  color: var(--color-text-subtle);
+  color: #94a3b8;
+  font-weight: 600;
 }
 
 .history-list {
@@ -256,34 +257,34 @@ onMounted(loadMessages)
 
 .history-date {
   font-size: 13px;
-  color: var(--color-primary);
-  font-weight: 650;
-  padding: 12px 0 8px;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 12px;
+  color: #7dd3fc;
+  font-weight: 700;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
+  margin-bottom: 14px;
   letter-spacing: 0.3px;
 }
 
 .history-item {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-xs);
-  margin-bottom: 12px;
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  margin-bottom: 14px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.25s ease;
-  backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(12px);
 }
 
 .history-item:hover {
-  border-color: var(--color-border-glow);
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.42);
+  box-shadow: 0 0 24px rgba(125, 211, 252, 0.18);
+  transform: translateY(-2px);
 }
 
 .history-item-header {
-  padding: 16px 20px;
+  padding: 18px 22px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -291,26 +292,26 @@ onMounted(loadMessages)
 
 .history-item-header .question {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text);
+  font-weight: 600;
+  color: #eaf2ff;
   flex: 1;
-  margin-right: 16px;
+  margin-right: 18px;
 }
 
 .history-item-header .time {
   font-size: 12px;
-  color: var(--color-text-subtle);
+  color: #94a3b8;
   white-space: nowrap;
 }
 
 .history-item-body {
-  padding: 0 20px 16px;
+  padding: 0 22px 18px;
 }
 
 .history-item-body .answer {
   font-size: 13px;
-  color: var(--color-text-muted);
-  line-height: 1.6;
+  color: #93c5fd;
+  line-height: 1.7;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -318,9 +319,9 @@ onMounted(loadMessages)
 }
 
 .history-item-footer {
-  padding: 10px 20px;
-  background: rgba(20, 28, 50, 0.4);
-  border-top: 1px solid var(--color-border-soft);
+  padding: 12px 22px;
+  background: rgba(8, 15, 30, 0.95);
+  border-top: 1px solid rgba(125, 211, 252, 0.12);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -337,12 +338,13 @@ onMounted(loadMessages)
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  background: var(--color-primary-soft);
-  border: 1px solid rgba(14, 165, 233, 0.15);
+  padding: 3px 10px;
+  background: rgba(125, 211, 252, 0.12);
+  border: 1px solid rgba(125, 211, 252, 0.2);
   border-radius: 999px;
   font-size: 11px;
-  color: var(--color-primary);
+  color: #7dd3fc;
+  font-weight: 600;
 }
 
 .feedback-tag {
@@ -350,8 +352,9 @@ onMounted(loadMessages)
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
+  font-weight: 600;
 }
 
 .feedback-tag svg {
@@ -361,83 +364,87 @@ onMounted(loadMessages)
 }
 
 .feedback-good {
-  background: var(--color-success-soft);
-  color: var(--color-success);
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
 }
 
 .feedback-bad {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 .history-item-footer .actions {
   display: flex;
-  gap: 12px;
+  gap: 14px;
 }
 
 .history-item-footer .actions span {
   font-size: 12px;
-  color: var(--color-text-subtle);
+  color: #94a3b8;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color 0.25s;
+  font-weight: 600;
 }
 
 .history-item-footer .actions span:hover {
-  color: var(--color-primary);
+  color: #7dd3fc;
 }
 
 .history-item-footer .actions span.delete:hover {
-  color: var(--color-danger);
+  color: #f87171;
 }
 
 .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px 0;
+  padding: 28px 0;
 }
 
 /* Detail Dialog */
 .qa-bubble {
-  padding: 14px 16px;
-  border-radius: 8px;
-  margin-bottom: 12px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  margin-bottom: 14px;
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.75;
 }
 
 .qa-bubble.question {
-  background: var(--color-primary-soft);
-  border: 1px solid rgba(14, 165, 233, 0.2);
+  background: rgba(125, 211, 252, 0.1);
+  border: 1px solid rgba(125, 211, 252, 0.25);
 }
 
 .qa-bubble.answer {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.2);
 }
 
 .qa-bubble .role {
   font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
+  font-weight: 700;
+  margin-bottom: 8px;
 }
 
 .qa-bubble .role.q {
-  color: var(--color-primary);
+  color: #7dd3fc;
 }
 
 .qa-bubble .role.a {
-  color: var(--color-success);
+  color: #34d399;
 }
 
 .sources-section {
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .sources-section h4 {
   font-size: 14px;
-  color: var(--color-text-muted);
-  margin-bottom: 10px;
+  color: #93c5fd;
+  margin-bottom: 12px;
+  font-weight: 700;
 }
 
 .source-list {
@@ -447,22 +454,23 @@ onMounted(loadMessages)
 }
 
 .source-list li {
-  padding: 8px 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-soft);
-  border-radius: 7px;
-  margin-bottom: 6px;
+  padding: 10px 14px;
+  background: rgba(8, 15, 30, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.15);
+  border-radius: 8px;
+  margin-bottom: 8px;
   font-size: 13px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  color: #eaf2ff;
 }
 
 .source-list li .source-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #7dd3fc, #a78bfa);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -476,13 +484,13 @@ onMounted(loadMessages)
 
 .source-meta {
   font-size: 11px;
-  color: var(--color-text-subtle);
-  margin-top: 2px;
+  color: #94a3b8;
+  margin-top: 3px;
 }
 
 @media (max-width: 760px) {
   .user-history-page {
-    padding: 16px;
+    padding: 18px;
   }
 
   .toolbar,
@@ -499,7 +507,7 @@ onMounted(loadMessages)
   .history-item-footer {
     align-items: flex-start;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
   }
 }
 </style>

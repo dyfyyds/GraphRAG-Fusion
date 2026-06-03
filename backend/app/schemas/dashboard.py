@@ -29,3 +29,10 @@ class SystemHealthItem(BaseModel):
     name: str
     status: str  # online / warning / offline
     detail: str = ""
+
+
+class DashboardOverview(BaseModel):
+    stats: StatsOut
+    trend: list[TrendItem]
+    hotQuestions: list[HotQuestion]
+    docTypes: list[DocTypeItem]

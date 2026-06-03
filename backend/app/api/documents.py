@@ -18,13 +18,15 @@ router = APIRouter(prefix="/api/documents", tags=["知识库"])
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
+    size: int = Query(10, ge=1, le=1000),
+    all: bool = Query(False),
     keyword: str | None = None,
     file_type: str | None = None,
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await document_service.list_documents(db, page=page, page_size=size, keyword=keyword, file_type=file_type, status=status)
+    page_size = 0 if all else size
+    result = await document_service.list_documents(db, page=page, page_size=page_size, keyword=keyword, file_type=file_type, status=status)
     return result
 
 
@@ -40,7 +42,7 @@ async def stream_document_events(_user: dict = Depends(get_current_user)):
         while True:
             try:
                 async with async_session() as db:
-                    result = await document_service.list_documents(db, page=1, page_size=100)
+                    result = await document_service.list_documents(db, page=1, page_size=0)
                     payload = {
                         "items": [
                             DocumentOut.model_validate(item).model_dump(mode="json")

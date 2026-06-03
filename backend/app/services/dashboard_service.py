@@ -1,9 +1,10 @@
 import asyncio
+import time
 from urllib.parse import urlparse
 
 import httpx
-from datetime import date, timedelta
-from sqlalchemy import select, func, cast, Date
+from datetime import date, datetime, time as datetime_time, timedelta
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
@@ -18,16 +19,27 @@ from app.core.runtime_config import (
     get_llm_runtime_config,
 )
 
+HEALTH_CACHE_TTL_SECONDS = 60
+_health_cache: dict[str, object] = {"expires_at": 0.0, "items": []}
+
+
+def _day_range(day: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(day, datetime_time.min)
+    return start, start + timedelta(days=1)
+
 
 async def get_stats(db: AsyncSession) -> dict:
     doc_count = (await db.execute(select(func.count()).select_from(Document))).scalar() or 0
     chunk_count = (await db.execute(select(func.count()).select_from(Chunk))).scalar() or 0
     user_count = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
     today = date.today()
+    today_start, tomorrow_start = _day_range(today)
     today_count = (
         await db.execute(
             select(func.count()).select_from(Message).where(
-                cast(Message.created_at, Date) == today, Message.role == "user"
+                Message.created_at >= today_start,
+                Message.created_at < tomorrow_start,
+                Message.role == "user",
             )
         )
     ).scalar() or 0
@@ -39,15 +51,27 @@ async def get_stats(db: AsyncSession) -> dict:
     }
 
 
+async def get_overview(db: AsyncSession) -> dict:
+    return {
+        "stats": await get_stats(db),
+        "trend": await get_trend(db),
+        "hotQuestions": await get_hot_questions(db),
+        "docTypes": await get_doc_types(db),
+    }
+
+
 async def get_trend(db: AsyncSession, days: int = 7) -> list[dict]:
     today = date.today()
     results = []
     for i in range(days - 1, -1, -1):
         d = today - timedelta(days=i)
+        day_start, next_day_start = _day_range(d)
         count = (
             await db.execute(
                 select(func.count()).select_from(Message).where(
-                    cast(Message.created_at, Date) == d, Message.role == "user"
+                    Message.created_at >= day_start,
+                    Message.created_at < next_day_start,
+                    Message.role == "user",
                 )
             )
         ).scalar() or 0
@@ -83,7 +107,32 @@ async def get_doc_types(db: AsyncSession) -> list[dict]:
     ]
 
 
-async def get_system_health() -> list[dict]:
+async def get_system_health(force_refresh: bool = False) -> list[dict]:
+    """Check health of each dependent service with a short in-process cache."""
+    now = time.monotonic()
+    cached_items = _health_cache.get("items") or []
+    if not force_refresh and cached_items and float(_health_cache.get("expires_at") or 0) > now:
+        return list(cached_items)
+
+    try:
+        services = await _build_system_health()
+    except Exception:
+        if cached_items:
+            return [
+                {
+                    **item,
+                    "detail": f"{item.get('detail', '')} | 使用缓存状态".strip(" |"),
+                }
+                for item in cached_items
+            ]
+        raise
+
+    _health_cache["items"] = services
+    _health_cache["expires_at"] = now + HEALTH_CACHE_TTL_SECONDS
+    return services
+
+
+async def _build_system_health() -> list[dict]:
     """Check health of each dependent service."""
     services = []
 
