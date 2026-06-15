@@ -71,7 +71,7 @@
         </div>
         <div class="qa-bubble answer">
           <div class="role a">AI 回答</div>
-          <span v-html="detailItem.answer || '暂无回答内容'"></span>
+          <span v-html="DOMPurify.sanitize(detailItem.answer || '暂无回答内容')"></span>
         </div>
         <div class="sources-section" v-if="detailItem.source_list && detailItem.source_list.length">
           <h4>引用来源</h4>
@@ -94,6 +94,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import DOMPurify from 'dompurify'
 import { ElDialog, ElEmpty, ElIcon, ElInput, ElMessage, ElMessageBox, ElPagination } from 'element-plus'
 import { Search, Document } from '@element-plus/icons-vue'
 import request from '../../api/request'

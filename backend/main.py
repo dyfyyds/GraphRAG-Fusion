@@ -5,6 +5,7 @@ import app.models  # noqa: F401 — 注册所有 SQLAlchemy 模型到 metadata
 from app.lifespan import lifespan
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.exception_handler import setup_exception_handlers
 from app.api import auth, users, documents, chat, conversations, graph, config, dashboard
 
@@ -38,6 +39,7 @@ app.add_middleware(
 # 中间件（后注册的先执行）
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 # 异常处理器
 setup_exception_handlers(app)

@@ -154,6 +154,60 @@ async def search_entity_context(query: str, limit: int = 5) -> list[dict]:
         return []
 
 
+async def find_multi_hop_paths(entity_names: list[str], max_hops: int = 2, limit: int = 12) -> list[dict]:
+    """查找命中实体两两之间的多跳最短路径（1..max_hops 跳）。
+
+    用于复杂问题的多步推理：当查询同时涉及概念 A 和 D 时，
+    返回 A→B→C→D 的完整路径，补全直接检索遗漏的中间概念 B、C。
+    """
+    names = [n for n in dict.fromkeys(entity_names) if n]
+    if len(names) < 2:
+        return []
+    max_hops = min(max(int(max_hops), 1), 4)
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(10):
+            async with driver.session() as session:
+                # 变长模式的跳数无法参数化，max_hops 为受控整数，安全
+                result = await session.run(
+                    "MATCH (a:Entity), (b:Entity) "
+                    "WHERE a.name IN $names AND b.name IN $names "
+                    "AND elementId(a) < elementId(b) "
+                    f"MATCH p = shortestPath((a)-[*1..{max_hops}]-(b)) "
+                    "RETURN [n IN nodes(p) | {name: n.name, type: n.type}] AS nodes, "
+                    "[r IN relationships(p) | r.rel_type] AS rels "
+                    "LIMIT $limit",
+                    names=names, limit=limit,
+                )
+                records = await result.data()
+                paths = []
+                seen = set()
+                for record in records:
+                    nodes = record.get("nodes") or []
+                    rels = record.get("rels") or []
+                    node_names = [normalize_entity_name(n.get("name") or "") for n in nodes]
+                    if len(node_names) < 2 or not all(is_high_quality_entity_name(n) for n in node_names):
+                        continue
+                    key = "→".join(node_names)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    paths.append({
+                        "nodes": [
+                            {"name": normalize_entity_name(n.get("name") or ""), "type": n.get("type") or ""}
+                            for n in nodes
+                        ],
+                        "rels": [r or "关联" for r in rels],
+                        "hops": len(rels),
+                    })
+                # 多跳路径优先（包含中间概念的推理链价值更高）
+                paths.sort(key=lambda p: -p["hops"])
+                return paths
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"find_multi_hop_paths error: {e}")
+        return []
+
+
 async def get_relations(limit: int = 100) -> list[dict]:
     driver = await get_neo4j_driver()
     try:
@@ -370,14 +424,23 @@ async def delete_relation(source: str, target: str, relation_type: str) -> bool:
 
 
 async def delete_by_document(document_id: int) -> dict:
-    """删除文档关联的知识图谱节点，返回各步骤执行结果"""
+    """删除文档关联的知识图谱节点，返回各步骤执行结果。
+
+    仅删除 document_id 匹配且无其他文档引用的实体。
+    共享实体（被多文档引用）不删除，避免误删其他文档的图谱数据。
+    """
     result = {"neo4j": False, "error": None}
     driver = await get_neo4j_driver()
     try:
         async with asyncio.timeout(5):
             async with driver.session() as session:
+                # 删除该文档独有的实体（document_id 匹配且未被其他文档引用的节点）
                 await session.run(
-                    "MATCH (e:Entity) WHERE e.document_id = $doc_id DETACH DELETE e",
+                    "MATCH (e:Entity) WHERE e.document_id = $doc_id "
+                    "AND NOT EXISTS { "
+                    "  MATCH (other:Entity) WHERE other.name = e.name AND other.document_id <> $doc_id "
+                    "} "
+                    "DETACH DELETE e",
                     doc_id=document_id,
                 )
                 result["neo4j"] = True
@@ -385,6 +448,58 @@ async def delete_by_document(document_id: int) -> dict:
         logger.error(f"删除文档 {document_id} 的图谱节点失败: {e}")
         result["error"] = str(e)
     return result
+
+
+async def cleanup_orphaned_entities(existing_doc_ids: list[int]) -> dict:
+    """清理孤儿图谱节点：document_id 不在现有文档列表中的实体。
+
+    用于修复历史数据不一致（文档已删除但图谱节点残留）。
+    """
+    driver = await get_neo4j_driver()
+    try:
+        async with asyncio.timeout(30):
+            async with driver.session() as session:
+                # 删除 document_id 不在现有文档列表中的实体
+                result = await session.run(
+                    "MATCH (e:Entity) WHERE e.document_id IS NOT NULL "
+                    "AND NOT e.document_id IN $ids "
+                    "DETACH DELETE e "
+                    "RETURN count(e) AS deleted",
+                    ids=existing_doc_ids,
+                )
+                record = await result.single()
+                deleted = record["deleted"] if record else 0
+
+                # 清理无 document_id 的孤立实体（没有关联关系的）
+                result2 = await session.run(
+                    "MATCH (e:Entity) WHERE e.document_id IS NULL "
+                    "AND NOT (e)--() "
+                    "DELETE e "
+                    "RETURN count(e) AS deleted"
+                )
+                record2 = await result2.single()
+                deleted_no_doc = record2["deleted"] if record2 else 0
+
+                # 清理孤儿同义词（其 original 或 synonym 不再对应任何实体）
+                result3 = await session.run(
+                    "MATCH (s:Synonym) "
+                    "WHERE NOT EXISTS { MATCH (e:Entity) WHERE e.name = s.original } "
+                    "AND NOT EXISTS { MATCH (e:Entity) WHERE e.name = s.synonym } "
+                    "DELETE s "
+                    "RETURN count(s) AS deleted"
+                )
+                record3 = await result3.single()
+                deleted_synonyms = record3["deleted"] if record3 else 0
+
+                return {
+                    "success": True,
+                    "deleted_orphaned": deleted,
+                    "deleted_disconnected": deleted_no_doc,
+                    "deleted_orphaned_synonyms": deleted_synonyms,
+                }
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"清理孤儿图谱实体失败: {e}")
+        return {"success": False, "error": str(e)}
 
 
 async def delete_all_entities() -> dict:

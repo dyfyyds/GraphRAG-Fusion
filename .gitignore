@@ -27,3 +27,36 @@ __pycache__/
 
 # Codegraph 索引
 .codegraph/
+
+# Word / Office 临时文件
+~$*
+
+# 大型二进制文件（视频、演示文稿）
+*.mp4
+*.webm
+*.pptx
+*.xlsx
+
+# 生成的报告（可通过脚本重新生成）
+使用和部署说明报告.docx
+
+# 演示视频与构建工具
+demo-video/
+ppt-build/
+
+# 测试报告与评估数据（非核心代码）
+测试报告.md
+测试文档.md
+测试用例集-四问题专项验证.md
+优化后的测试问题集.md
+优化后的测试问题集.xlsx
+qa-eval-retrieval-report.json
+
+# 杂项临时目录
+path/
+tmp_docx_render/
+tools/
+
+# 误创建的杂项文件
+...
+9:30

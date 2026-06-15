@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, UploadFile, File
 from app.dependencies import require_admin
 from app.services import graph_service
+from app.core import graph_import_service
 from app.schemas.graph import (
     GraphSearchResult, EntityOut, EntityCreate, EntityUpdate,
     RelationOut, RelationCreate, RelationUpdate, RelationDelete, GraphStatsOut,
@@ -131,3 +132,15 @@ async def get_stats():
 @router.post("/cleanup-low-quality")
 async def cleanup_low_quality_entities(limit: int = 5000, _admin: dict = Depends(require_admin)):
     return await graph_service.cleanup_low_quality_entities(limit=limit)
+
+
+@router.post("/import")
+async def import_graph(file: UploadFile = File(...), _admin: dict = Depends(require_admin)):
+    """导入实体/关系文件（JSON / TXT / Word，自动识别结构化三元组或正文）。"""
+    allowed = ("json", "txt", "md", "docx", "doc")
+    ext = (file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "").lower()
+    if ext not in allowed:
+        from app.exceptions import AppError
+        raise AppError("不支持的文件格式，仅支持 JSON / TXT / MD / Word(docx)", status_code=400)
+    content = await file.read()
+    return await graph_import_service.import_graph_file(file.filename, content)

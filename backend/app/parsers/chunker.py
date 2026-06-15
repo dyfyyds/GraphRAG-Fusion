@@ -22,6 +22,27 @@ INLINE_BOUNDARY_RE = re.compile(
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？；;])")
 LIST_ITEM_RE = re.compile(r"(?=（[一二三四五六七八九十0-9]+）|[一二三四五六七八九十0-9]+[、.．])")
 
+# 层级标题识别：章/编 为一级，节 为二级；Markdown #/## 一级，###/#### 二级
+CHAPTER_HEADING_RE = re.compile(
+    r"^(?:第[一二三四五六七八九十百千万零〇两0-9]+[章编]\s*\S{0,40}|#{1,2}\s+.+)$"
+)
+SECTION_HEADING_RE = re.compile(
+    r"^(?:第[一二三四五六七八九十百千万零〇两0-9]+节\s*\S{0,40}|#{3,4}\s+.+)$"
+)
+BREADCRUMB_PREFIX = "【所属章节："
+BREADCRUMB_RE = re.compile(r"^【所属章节：[^】]{0,120}】\n?")
+
+
+def strip_breadcrumb(text: str) -> str:
+    """移除分块开头的章节面包屑，返回原始正文（页码定位等场景使用）。"""
+    return BREADCRUMB_RE.sub("", text or "", count=1)
+
+
+def _clean_heading(line: str, max_len: int = 40) -> str:
+    line = re.sub(r"^#{1,6}\s+", "", line.strip())
+    line = line.strip(" 　:：")
+    return line[:max_len]
+
 
 def _estimate_tokens(text: str) -> int:
     """估算 token 数: CJK 字符≈1 token, 英文单词≈1.3 token, 标点不计"""
@@ -88,6 +109,12 @@ def _split_sections(text: str) -> list[str]:
     return [section for section in sections if section]
 
 
+def _is_list_item(text: str) -> bool:
+    """判断文本是否以列表项标记开头（如 （一）、1、 等）"""
+    stripped = text.strip()
+    return bool(LIST_ITEM_RE.match(stripped) or re.match(r"^[（(][一二三四五六七八九十0-9]+[）)]", stripped))
+
+
 def _split_long_text(text: str, max_tokens: int, overlap: int) -> list[str]:
     if len(text) <= max_tokens and _estimate_tokens(text) <= max_tokens:
         return [text.strip()] if text.strip() else []
@@ -99,13 +126,33 @@ def _split_long_text(text: str, max_tokens: int, overlap: int) -> list[str]:
             continue
         list_parts = [part.strip() for part in LIST_ITEM_RE.split(paragraph) if part and part.strip()]
         if len(list_parts) > 1:
-            units.extend(list_parts)
+            # 保留列表项的上下文：将短列表项与其前缀合并，但列表项之间不合并
+            prefix = ""
+            for part in list_parts:
+                if _is_list_item(part):
+                    if prefix:
+                        # 前缀作为独立 unit
+                        units.append(prefix)
+                        prefix = ""
+                    units.append(part)
+                else:
+                    # 非列表项内容（如"第四条 ..."），作为前缀
+                    if prefix:
+                        units.append(prefix)
+                    prefix = part
+            if prefix:
+                units.append(prefix)
         else:
             units.extend(part.strip() for part in SENTENCE_SPLIT_RE.split(paragraph) if part.strip())
 
     chunks: list[str] = []
     current = ""
     for unit in units:
+        # 列表项不与前面内容合并，保持独立
+        if _is_list_item(unit) and current:
+            chunks.append(current)
+            current = unit
+            continue
         candidate = f"{current}\n{unit}".strip() if current else unit
         if len(candidate) <= max_tokens and _estimate_tokens(candidate) <= max_tokens:
             current = candidate
@@ -140,12 +187,14 @@ def _merge_tiny_chunks(chunks: list[str], min_chars: int = 40, max_tokens: int =
     for chunk in chunks:
         first_line = chunk.splitlines()[0].strip() if chunk.strip() else ""
         is_structural = _is_boundary(first_line)
-        if len(chunk) < min_chars and not is_structural:
+        is_list = _is_list_item(first_line)
+        # 列表项和结构性内容不合并，保持独立
+        if len(chunk) < min_chars and not is_structural and not is_list:
             pending = f"{pending}\n{chunk}".strip() if pending else chunk
             continue
         if pending:
             candidate = f"{pending}\n{chunk}".strip()
-            if len(candidate) <= max_tokens and _estimate_tokens(candidate) <= max_tokens:
+            if len(candidate) <= max_tokens and _estimate_tokens(candidate) <= max_tokens and not is_list:
                 chunk = candidate
                 pending = ""
             else:
@@ -180,8 +229,35 @@ def is_structural_chunk(text: str) -> bool:
     return False
 
 
+def _sections_with_breadcrumbs(sections: list[str]) -> list[tuple[str, str]]:
+    """遍历切分后的章节块，跟踪当前 章/编 与 节 标题，为每块计算层级面包屑。
+
+    解决扁平化分块丢失文档层级关系的问题：每个条款块都能携带
+    “第X章 YYY > 第X节 ZZZ”的归属信息，跨文档检索时不再失去上下文。
+    """
+    chapter = ""
+    section_heading = ""
+    out: list[tuple[str, str]] = []
+    for sec in sections:
+        first_line = sec.splitlines()[0].strip() if sec.strip() else ""
+        if CHAPTER_HEADING_RE.match(first_line):
+            chapter = _clean_heading(first_line)
+            section_heading = ""
+            breadcrumb = ""  # 章标题块自身无需前缀
+        elif SECTION_HEADING_RE.match(first_line):
+            section_heading = _clean_heading(first_line)
+            breadcrumb = chapter
+        else:
+            breadcrumb = " > ".join(x for x in (chapter, section_heading) if x)
+        out.append((breadcrumb, sec))
+    return out
+
+
 def chunk_text(text: str, max_tokens: int = 512, overlap: int = 64) -> list[str]:
-    """结构化切分：标题/章/条/附件优先，长块按款项和句子二次切分。"""
+    """结构化切分：标题/章/条/附件优先，长块按款项和句子二次切分。
+
+    每个分块前置【所属章节】层级面包屑，保留文档层级上下文。
+    """
     text = _normalize_text(text)
     if not text:
         return []
@@ -190,9 +266,26 @@ def chunk_text(text: str, max_tokens: int = 512, overlap: int = 64) -> list[str]
     if not sections:
         sections = [text]
 
-    chunks: list[str] = []
-    for section in sections:
-        chunks.extend(_split_long_text(section, max_tokens=max_tokens, overlap=overlap))
+    # 切分并记录每块的层级归属
+    tagged: list[tuple[str, str]] = []
+    for breadcrumb, section in _sections_with_breadcrumbs(sections):
+        for piece in _split_long_text(section, max_tokens=max_tokens, overlap=overlap):
+            piece = piece.strip()
+            if piece:
+                tagged.append((breadcrumb, piece))
 
-    chunks = _merge_tiny_chunks([chunk.strip() for chunk in chunks if chunk.strip()], max_tokens=max_tokens)
-    return chunks
+    # 小块合并仅在同一面包屑分组内进行，避免跨章节混淆上下文
+    final: list[str] = []
+    i = 0
+    while i < len(tagged):
+        breadcrumb = tagged[i][0]
+        group = []
+        while i < len(tagged) and tagged[i][0] == breadcrumb:
+            group.append(tagged[i][1])
+            i += 1
+        for merged in _merge_tiny_chunks(group, max_tokens=max_tokens):
+            if breadcrumb and BREADCRUMB_PREFIX not in merged:
+                final.append(f"{BREADCRUMB_PREFIX}{breadcrumb}】\n{merged}")
+            else:
+                final.append(merged)
+    return final

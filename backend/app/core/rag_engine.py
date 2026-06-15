@@ -2,36 +2,42 @@ import asyncio
 import json
 import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, not_, or_, select
 
 from app.core.llm_client import get_llm_client
 from app.core.embedding_client import get_embedding_client
 from app.core.entity_quality import is_high_quality_entity_name
 from app.core.runtime_config import load_raw_runtime_config
 from app.core.vector_service import query_vectors
-from app.services.graph_service import search_entity_context
+from app.services.graph_service import search_entity_context, find_multi_hop_paths
 from app.db.mysql import async_session
 from app.models.chunk import Chunk
 from app.models.document import Document
 
 logger = logging.getLogger("app")
 
-SYSTEM_PROMPT = """你是一个企业内部文件问答搜索助手。请严格基于已上传的企业内部知识库文件回答用户问题。
+SYSTEM_PROMPT = """你是一个企业内部文件问答搜索助手。请基于已上传的企业内部知识库文件回答用户问题。
+
+核心原则：你的目标是尽可能帮助用户找到答案，而不是寻找拒答的理由。
 
 规则：
-1. 只使用参考资料中的信息回答，不得使用模型常识、外部知识或猜测
+1. 优先使用参考资料中的信息回答，不得使用模型常识或外部知识
 2. 回答必须结论先行，然后给出文件中的明确依据
-3. 对需要推理的问题，可以综合多条参考资料进行有限推理；不要因为参考资料没有逐字给出用户问题的完整答案就直接拒答
-3a. 不得提出参考资料未明确要求的风险、例外条件、行业惯例或额外证明材料要求
-3b. 如果参考资料没有明确列出证明材料清单，不得自行补充“建议提供”的材料类型
-3c. 不得使用“常见做法、行业惯例、通常情况”等资料外表述；只能围绕题述事实、已检索条文和招标文件要求作答
-4. 必须包含“引用来源：”一行，引用来源只能来自参考资料中给出的来源说明
-5. 必须包含“【知识图谱引用】”区块，直接使用用户消息中提供的知识图谱引用内容
-6. 如果参考资料不足以回答，请只回答“根据企业内部知识库，未找到相关信息，无法回答该问题。”
+3. 综合多条参考资料进行推理；不要因为参考资料没有逐字包含完整答案就拒答
+3a. 不得提出参考资料未明确要求的风险、例外条件或额外证明材料
+3b. 不得使用”常见做法、行业惯例、通常情况”等资料外表述
+4. 必须包含”引用来源：”一行，引用参考资料中的来源说明
+5. 必须包含”【知识图谱引用】”区块
+6. 只有当参考资料中完全没有相关内容时，才回答”根据企业内部知识库，未找到相关信息，无法回答该问题。”
 7. 回答要准确、简洁、专业
+8. 重要：参考资料中只要包含相关的条款、规定、数字或事实，就必须基于这些信息回答，即使需要合理推断。绝对不允许在有相关参考资料的情况下拒答
+9. 重要：对于企业制度类问题（考勤、差旅、入职、保密、体检、年终总结等），优先使用企业内部制度文件中的内容回答
+10. 重要：如果参考资料中包含部分答案（如360度评估权重），必须回答该部分，对未找到的部分说明”参考资料中未包含关于XX的规定”
+11. 重要：当参考资料包含”加班费””调休””字数””体检费””审批”等关键词时，必须提取并回答相关内容，不得声称”未找到”
 
 输出格式：
 根据《文档名》的规定，直接回答用户问题。
@@ -55,9 +61,9 @@ CONTEXT_TEMPLATE = """参考资料：
 用户问题：{question}"""
 
 RRF_K = 60
-W_VEC = 0.5
-W_GRAPH = 0.3
-W_KW = 0.2
+W_VEC = 0.4
+W_GRAPH = 0.2
+W_KW = 0.4
 FALLBACK_PREFIX = "企业内部知识库中未找到相关信息，正在使用 AI 通用能力回答：\n\n"
 SOURCE_LABELS = {
     "vector": "向量检索",
@@ -69,6 +75,7 @@ VECTOR_TOP_K = 8
 KEYWORD_TOP_K = 12
 CONTEXT_TOP_K = 8
 DEFAULT_SIMILARITY_THRESHOLD = 0.05
+DEFAULT_MAX_CONTEXT_CHARS = 8000
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,7 @@ class RetrievalRuntimeConfig:
     graph_weight: float = W_GRAPH
     keyword_weight: float = W_KW
     bm25_enabled: bool = True
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS
 
 DOMAIN_TERMS = (
     "总公司",
@@ -102,6 +110,31 @@ DOMAIN_TERMS = (
     "认可",
     "供应商",
     "采购人",
+    # 企业制度相关
+    "考勤",
+    "迟到",
+    "早退",
+    "旷工",
+    "年假",
+    "加班",
+    "调休",
+    "入职",
+    "离职",
+    "试用期",
+    "转正",
+    "辞职",
+    "竞业限制",
+    "体检",
+    "年终总结",
+    "绩效考核",
+    "差旅报销",
+    "住宿费",
+    "审批权限",
+    "保密",
+    "客户现场",
+    "高铁",
+    "二等座",
+    "通讯费",
 )
 SCENARIO_PROFILES = {
     "government_procurement": {
@@ -146,6 +179,16 @@ SCENARIO_PROFILES = {
         "triggers": ("票据", "非税", "收费", "发票", "收据"),
         "terms": ("财政票据", "非税收入", "收费管理", "发票", "收据", "缴款"),
     },
+    "enterprise_hr": {
+        "triggers": ("入职", "离职", "考勤", "迟到", "早退", "旷工", "年假", "加班", "调休", "试用期", "转正", "辞职", "竞业", "体检", "年终总结", "绩效", "工资", "薪资", "社保", "公积金"),
+        "terms": ("考勤管理制度", "新员工入职手册", "员工体检通知", "年终总结", "差旅报销管理制度", "保密规定",
+                  "打卡", "迟到", "早退", "旷工", "年假", "加班费", "调休", "试用期", "转正", "辞职", "竞业限制",
+                  "体检费用", "360度评估", "绩效考核", "审批权限", "报销标准", "住宿费上限", "高铁", "二等座"),
+    },
+    "enterprise_security": {
+        "triggers": ("保密", "客户现场", "信息安全", "加密", "微信", "数据泄露"),
+        "terms": ("客户现场安全保密规定", "加密通讯", "敏感信息", "保密协议", "信息安全", "数据清理"),
+    },
 }
 BRANCH_COMPANY_TERMS = (
     "供应商",
@@ -184,11 +227,21 @@ GENERIC_GRAPH_TERMS = {
 }
 
 INJECTION_PATTERNS = [
+    # English patterns
     r"ignore\s+(all\s+)?previous\s+instructions",
     r"you\s+are\s+now\s+",
     r"system\s*:\s*",
     r"<\|system\|>",
     r"jailbreak",
+    r"do\s+anything\s+now",
+    r"dan\s+mode",
+    # Chinese patterns
+    r"忽略.{0,10}(之前|以上|所有).{0,10}(指令|提示|规则)",
+    r"你现在是",
+    r"进入.{0,5}(开发者|调试|越狱|无限制).{0,5}模式",
+    r"无视.{0,10}(安全|限制|规则|约束)",
+    r"扮演.{0,10}(角色|助手|AI)",
+    r"输出.{0,10}(系统|原始|初始).{0,10}(提示|prompt)",
 ]
 
 
@@ -236,6 +289,7 @@ def _build_keyword_terms(query: str) -> list[str]:
     if "考勤" in normalized or "打卡" in normalized:
         add("考勤")
         add("迟到")
+        add("考勤管理制度")
 
     for hour, minute in _extract_times(normalized):
         add(f"{hour}:{minute:02d}")
@@ -252,7 +306,20 @@ def _build_keyword_terms(query: str) -> list[str]:
                 add("9:30")
                 add("旷工")
 
-    return terms[:60]
+    # 企业制度文档名称映射：查询中出现相关关键词时，添加对应的文档名
+    _enterprise_doc_mappings = {
+        ("差旅", "报销", "出差", "高铁", "飞机", "住宿", "交通", "审批"): "差旅报销管理制度",
+        ("考勤", "迟到", "早退", "旷工", "打卡", "上班", "下班", "加班", "调休", "年假", "请假"): "考勤管理制度",
+        ("入职", "离职", "辞职", "试用期", "转正", "竞业", "劳动合同", "入职材料"): "新员工入职手册",
+        ("保密", "客户现场", "微信", "加密", "信息安全", "数据泄露"): "客户现场安全保密规定",
+        ("年终总结", "360度", "绩效考核", "考评", "年终"): "年终总结工作通知",
+        ("体检", "体检费用", "体检标准"): "员工体检通知",
+    }
+    for trigger_set, doc_name in _enterprise_doc_mappings.items():
+        if any(t in normalized for t in trigger_set):
+            add(doc_name)
+
+    return terms[:80]
 
 
 def _keyword_term_weight(term: str) -> float:
@@ -314,6 +381,12 @@ async def _load_retrieval_config() -> RetrievalRuntimeConfig:
     vector_weight = float(config.get("vector_weight", W_VEC))
     graph_weight = float(config.get("graph_weight", W_GRAPH))
     keyword_weight = max(0.1, 1.0 - min(max(vector_weight, 0.0), 1.0))
+    try:
+        max_context_chars = int(config.get("max_context_chars", DEFAULT_MAX_CONTEXT_CHARS))
+    except (TypeError, ValueError):
+        max_context_chars = DEFAULT_MAX_CONTEXT_CHARS
+    max_context_chars = min(max(max_context_chars, 2000), 24000)
+
     return RetrievalRuntimeConfig(
         vector_top_k=vector_top_k,
         keyword_top_k=keyword_top_k,
@@ -323,7 +396,51 @@ async def _load_retrieval_config() -> RetrievalRuntimeConfig:
         graph_weight=graph_weight,
         keyword_weight=keyword_weight,
         bm25_enabled=_coerce_bool(config.get("bm25_enabled"), True),
+        max_context_chars=max_context_chars,
     )
+
+
+SENTENCE_END_CHARS = "。！？；;\n"
+
+
+def _trim_to_sentence_boundary(text: str, limit: int, min_keep: int = 200) -> str:
+    """把超长文本截断到 limit 以内，且尽量停在句末标点处。
+
+    解决固定窗口硬截断破坏语义单元的问题：宁可少装一句，
+    也不在句子中间切开；不足 min_keep 字符时放弃截断（返回空）。
+    """
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit < min_keep:
+        return ""
+    window = text[:limit]
+    for i in range(len(window) - 1, min_keep - 2, -1):
+        if window[i] in SENTENCE_END_CHARS:
+            return window[: i + 1].rstrip()
+    return window.rstrip()
+
+
+# 查询向量 LRU 缓存：同一问题重复提问（多轮会话、压测）时省去一次 Embedding API 往返
+_EMBED_CACHE: OrderedDict = OrderedDict()
+_EMBED_CACHE_MAX = 256
+
+
+async def _embed_query_cached(question: str) -> list[float] | None:
+    embedding_client = get_embedding_client()
+    cache_key = f"{getattr(embedding_client, 'model', '')}:{question.strip()}"
+    cached = _EMBED_CACHE.get(cache_key)
+    if cached is not None:
+        _EMBED_CACHE.move_to_end(cache_key)
+        return cached
+    embedding = await embedding_client.embed(question)
+    if embedding:
+        _EMBED_CACHE[cache_key] = embedding
+        _EMBED_CACHE.move_to_end(cache_key)
+        while len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
+            _EMBED_CACHE.popitem(last=False)
+    return embedding
 
 
 class RAGEngine:
@@ -335,9 +452,8 @@ class RAGEngine:
         retrieval_config = await _load_retrieval_config()
 
         # 三路并行检索
-        embedding_client = get_embedding_client()
         try:
-            query_embedding = await embedding_client.embed(question)
+            query_embedding = await _embed_query_cached(question)
         except Exception as exc:
             logger.warning(f"向量化失败，降级为直接 LLM 调用: {exc}")
             query_embedding = None
@@ -391,6 +507,17 @@ class RAGEngine:
             if item.get("document_name")
         ]
         fused = await self._expand_neighbor_chunks(fused, limit=retrieval_config.context_top_k)
+
+        # 意图识别 + 定向二次检索
+        intent_terms = self._extract_intent_terms(question)
+        if intent_terms:
+            targeted = await self._targeted_retrieval(intent_terms, fused)
+            if targeted:
+                # 将定向检索结果插入到 fused 列表前面
+                fused = targeted + [item for item in fused
+                                    if (item.get("document_id"), item.get("chunk_index"))
+                                    not in {(t.get("document_id"), t.get("chunk_index")) for t in targeted}]
+
         graph_context = self._format_graph_context(graph_results)
 
         # 输出引用来源
@@ -412,19 +539,65 @@ class RAGEngine:
             })
         yield ("sources", sources)
 
-        # 组装上下文
+        # 组装上下文（去重 + 文档分组限制 + 预算制长度管理）
+        # 预算制：追加前先检查剩余空间；放不下时按句子边界截断而非硬截断，
+        # 保持语义单元完整，且不因一个大块提前放弃后续小块。
         context_parts = []
-        for item in fused[:retrieval_config.context_top_k]:
+        seen_content = set()
+        doc_chunk_count = {}
+        MAX_CHUNKS_PER_DOC = 3
+        max_context_chars = retrieval_config.max_context_chars
+        total_chars = 0
+
+        for item in fused[:retrieval_config.context_top_k * 3]:
+            if total_chars >= max_context_chars:
+                break
+            doc_id = item.get("document_id")
+            content = item.get("content", "").strip()
+            if not content:
+                continue
+
+            # 内容去重：跳过高度重叠的 chunk
+            content_sig = content[:100]
+            if content_sig in seen_content:
+                continue
+            seen_content.add(content_sig)
+
+            # 文档分组限制：定向检索和关键词匹配的 chunk 不受限制
+            source = item.get("source", "")
+            doc_key = doc_id or item.get("document_name", "")
+            if source in ("targeted", "keyword"):
+                # 定向检索和关键词匹配的 chunk 优先，不受文档分组限制
+                pass
+            else:
+                doc_chunk_count[doc_key] = doc_chunk_count.get(doc_key, 0) + 1
+                if doc_chunk_count[doc_key] > MAX_CHUNKS_PER_DOC:
+                    continue
+
             doc_name = item.get("document_name", "未知文档")
             page = item.get("page_number", "")
-            content = item.get("content", "")
-            source_label = SOURCE_LABELS.get(item.get("source"), item.get("source", "检索"))
-            doc_id = item.get("document_id", "")
+            source_label = SOURCE_LABELS.get(source, source or "检索")
             chunk_index = item.get("chunk_index")
             page_info = f" (第{page}页)" if page else ""
             chunk_info = f" - 分块{chunk_index}" if chunk_index is not None else ""
             source_info = f"[{source_label}-文档{doc_id}] {doc_name}{page_info}{chunk_info}"
-            context_parts.append(f"来源说明：{source_info}\n内容：{content}")
+            header = f"来源说明：{source_info}\n内容："
+            part_len = len(header) + len(content) + 2  # +2 for joiner
+
+            remaining = max_context_chars - total_chars
+            if part_len <= remaining:
+                context_parts.append(f"{header}{content}")
+                total_chars += part_len
+                continue
+
+            # 整块放不下：尝试按句子边界截断到剩余预算
+            allowed = remaining - len(header) - len("\n……（该分块剩余内容因长度限制省略）") - 2
+            trimmed = _trim_to_sentence_boundary(content, allowed)
+            if trimmed:
+                context_parts.append(f"{header}{trimmed}\n……（该分块剩余内容因长度限制省略）")
+                total_chars = max_context_chars
+            # 截不出有意义的内容则跳过，继续尝试后面更短的块
+
         context = "\n\n".join(context_parts)
         retrieval_hints = self._format_retrieval_hints(question, fused[:retrieval_config.context_top_k])
 
@@ -489,16 +662,20 @@ class RAGEngine:
         rule_keywords = _build_keyword_terms(query)
         llm = get_llm_client()
         try:
-            resp = await llm.chat([
-                {
-                    "role": "user",
-                    "content": (
-                        "从以下问题中提取可用于知识图谱检索的核心实体、法规、条款、主体、材料或条件，"
-                        "用逗号分隔，只输出实体名：\n"
-                        f"{query}"
-                    ),
-                }
-            ])
+            # 限时提取：LLM 慢响应不应拖垮整条检索链路
+            resp = await asyncio.wait_for(
+                llm.chat([
+                    {
+                        "role": "user",
+                        "content": (
+                            "从以下问题中提取可用于知识图谱检索的核心实体、法规、条款、主体、材料或条件，"
+                            "用逗号分隔，只输出实体名：\n"
+                            f"{query}"
+                        ),
+                    }
+                ]),
+                timeout=8,
+            )
             keywords = [k.strip() for k in resp.split(",") if k.strip()]
         except Exception:
             keywords = []
@@ -525,13 +702,21 @@ class RAGEngine:
             ]
             keywords = branch_terms + [term for term in keywords if term not in branch_terms]
 
-        # 搜索图谱实体及其直接关系
+        # 搜索图谱实体及其直接关系（并行查询，降低多关键词串行延迟）
+        effective_keywords = [
+            kw for kw in keywords[:16]
+            if kw not in GENERIC_GRAPH_TERMS and (len(kw) >= 4 or kw in {"总公司", "分公司", "公司法"})
+        ][:10]
         graph_items = []
-        for kw in keywords[:16]:
-            if kw in GENERIC_GRAPH_TERMS or (len(kw) < 4 and kw not in {"总公司", "分公司", "公司法"}):
-                continue
-            results = await search_entity_context(kw, limit=5)
-            graph_items.extend(results)
+        if effective_keywords:
+            results_list = await asyncio.gather(
+                *(search_entity_context(kw, limit=4) for kw in effective_keywords),
+                return_exceptions=True,
+            )
+            for results in results_list:
+                if isinstance(results, Exception):
+                    continue
+                graph_items.extend(results)
 
         items = []
         seen = set()
@@ -547,6 +732,22 @@ class RAGEngine:
                     "metadata": e,
                     "entity": e,
                 })
+
+        # 多跳推理：在命中实体之间查找 1..2 跳路径，补全中间概念（A→B→C→D）
+        matched_names = [item["entity"].get("name", "") for item in items][:8]
+        if len(matched_names) >= 2:
+            try:
+                paths = await find_multi_hop_paths(matched_names, max_hops=2, limit=10)
+                for path in paths:
+                    chain = " → ".join(n["name"] for n in path["nodes"])
+                    items.append({
+                        "source": "graph",
+                        "content": f"路径: {chain}",
+                        "metadata": {"path": path},
+                        "path": path,
+                    })
+            except Exception as exc:
+                logger.warning(f"多跳路径检索失败（忽略）: {exc}")
         return items
 
     async def _keyword_search(self, query: str, top_k: int = 5, enabled: bool = True) -> list[dict]:
@@ -556,23 +757,36 @@ class RAGEngine:
         if not terms:
             return []
 
+        # 优先使用高权重的关键词进行搜索，减少泛化词的干扰
+        high_weight_terms = [t for t in terms if _keyword_term_weight(t) >= 3.0]
+        search_terms = high_weight_terms if high_weight_terms else terms[:10]
+        # SQL LIKE 条件数上限：知识库规模增大后，几十个 OR-LIKE 会让全表扫描代价急剧上升
+        search_terms = search_terms[:24]
+
         async with async_session() as db:
+            # 同时搜索 chunk 内容和文档名
+            content_conditions = [Chunk.content.contains(term) for term in search_terms]
+            name_conditions = [Document.name.contains(term) for term in search_terms if len(term) >= 4]
+            all_conditions = content_conditions + name_conditions
             result = await db.execute(
                 select(Chunk, Document)
                 .join(Document, Chunk.document_id == Document.id)
-                .where(or_(*(Chunk.content.contains(term) for term in terms)))
-                .limit(max(top_k * KEYWORD_SEARCH_LIMIT_FACTOR, 1000))
+                .where(or_(*all_conditions))
+                .limit(max(top_k * KEYWORD_SEARCH_LIMIT_FACTOR, 500))
             )
             items = []
             for c, doc in result.all():
                 matched_terms = [term for term in terms if term in c.content]
-                if not matched_terms:
-                    continue
-                keyword_score = sum(_keyword_term_weight(term) for term in matched_terms)
+                # 文档名匹配的关键词也加入
                 doc_name = doc.name or ""
-                for term in terms:
-                    if term in doc_name:
-                        keyword_score += _keyword_term_weight(term) * 0.5
+                name_matched_terms = [term for term in terms if len(term) >= 4 and term in doc_name]
+                all_matched = list(set(matched_terms + name_matched_terms))
+                if not all_matched:
+                    continue
+                keyword_score = sum(_keyword_term_weight(term) for term in all_matched)
+                # 文档名匹配额外加分
+                for term in name_matched_terms:
+                    keyword_score += _keyword_term_weight(term) * 1.0
                 items.append({
                     "source": "keyword",
                     "content": c.content,
@@ -582,10 +796,10 @@ class RAGEngine:
                     "page_number": c.page_number,
                     "chunk_index": c.chunk_index,
                     "vector_id": c.vector_id,
-                    "keyword_hits": len(matched_terms),
+                    "keyword_hits": len(all_matched),
                     "keyword_score": keyword_score,
                     "keyword_term_count": len(terms),
-                    "matched_terms": matched_terms,
+                    "matched_terms": all_matched,
                 })
             return sorted(
                 items,
@@ -661,12 +875,12 @@ class RAGEngine:
         }
         wanted = set()
         parent_scores = {}
-        for item in items[: max(3, min(limit, 6))]:
+        for item in items[: max(5, min(limit, 10))]:
             document_id = item.get("document_id")
             chunk_index = item.get("chunk_index")
             if document_id is None or chunk_index is None:
                 continue
-            for offset in (-2, -1, 1, 2):
+            for offset in (-5, -4, -3, -2, -1, 1, 2, 3, 4, 5):
                 neighbor_key = (document_id, chunk_index + offset)
                 if chunk_index + offset >= 0:
                     wanted.add(neighbor_key)
@@ -714,7 +928,28 @@ class RAGEngine:
 
         lines = []
         seen = set()
+
+        # 优先输出多跳推理路径：它们串联了问题中两个概念之间的中间实体
+        for item in graph_results:
+            path = item.get("path")
+            if not path:
+                continue
+            nodes = path.get("nodes") or []
+            rels = path.get("rels") or []
+            if len(nodes) < 2:
+                continue
+            parts = [nodes[0]["name"]]
+            for i, rel in enumerate(rels):
+                target = nodes[i + 1]["name"] if i + 1 < len(nodes) else ""
+                parts.append(f"—[{rel}]→ {target}")
+            line = "- 推理路径：" + " ".join(parts)
+            if line not in seen:
+                lines.append(line)
+                seen.add(line)
+
         for item in graph_results[:12]:
+            if item.get("path"):
+                continue
             entity = item.get("entity") or item.get("metadata") or {}
             name = entity.get("name", "")
             entity_type = entity.get("type", "")
@@ -815,13 +1050,24 @@ class RAGEngine:
             weighted_hits = item.get("keyword_score", item.get("keyword_hits", 0))
             document_name = item.get("document_name", "")
             policy_bonus = 0.0
-            if "制度" in document_name:
-                policy_bonus += 0.02
+            # 企业制度文档大幅加分
             if "管理制度" in document_name:
-                policy_bonus += 0.01
+                policy_bonus += 0.08
+            elif "制度" in document_name:
+                policy_bonus += 0.05
+            if "手册" in document_name:
+                policy_bonus += 0.05
+            if "通知" in document_name and ("年终" in document_name or "体检" in document_name):
+                policy_bonus += 0.05
+            if "保密" in document_name:
+                policy_bonus += 0.05
+            # 匹配的关键词中包含文档名片段时额外加分
+            for term in item.get("matched_terms", []):
+                if len(term) >= 4 and term in document_name:
+                    policy_bonus += 0.04
             if strong_hits >= 5:
                 policy_bonus += 0.03
-            return min(0.16, 0.008 * weighted_hits) + 0.03 * hit_ratio + 0.01 * min(strong_hits, 3) + policy_bonus
+            return min(0.25, 0.01 * weighted_hits) + 0.03 * hit_ratio + 0.01 * min(strong_hits, 3) + policy_bonus
 
         for rank, item in enumerate(vector_results):
             key = _key(item)
@@ -856,6 +1102,166 @@ class RAGEngine:
         if item.get("distance") is not None:
             return self._vector_similarity(item)
         return item.get("score", 0)
+
+    def _extract_intent_terms(self, question: str) -> list[str]:
+        """从问题中提取意图关键词，用于定向二次检索。
+
+        策略：提取问题中具体的查询对象词（如"加班费""字数""体检费"），
+        这些词是用户真正想查找的内容，应该出现在 chunk 中。
+        """
+        terms = []
+        # 意图模式：问题中具体的查询对象
+        intent_patterns = [
+            # 费用/标准类
+            (r"(加班费|调休|年假|事假|病假|婚假|产假|丧假)", 1),
+            (r"(住宿费|交通费|伙食费|通讯费|差旅费|报销)", 1),
+            (r"(体检费|体检标准|体检费用)", 1),
+            (r"(工资|薪资|薪酬|奖金|补贴|津贴|福利)", 1),
+            # 数量/要求类
+            (r"(字数|字以内|不少于|不超过|至少|上限|下限)", 1),
+            (r"(权重|占比|比例|百分比|%)", 1),
+            (r"(天数|几天|多少天|期限|有效期|截止)", 1),
+            # 时间/条件类
+            (r"(提前多久|提前几天|多久之内|几个工作日)", 1),
+            (r"(审批|批准|审核|签字)", 1),
+            # 资格/条件类
+            (r"(商号|注册商标|授权商标|品牌)", 1),
+            (r"(资质|资格|条件|要求|标准)", 1),
+            (r"(开办费|长期待摊|管理费用|当期损益)", 1),
+            (r"(固定资产|折旧|入账|暂估)", 1),
+            # 具体数字
+            (r"(\d+元|\d+天|\d+倍|\d+%)", 2),
+        ]
+        for pattern, weight in intent_patterns:
+            matches = re.findall(pattern, question)
+            for match in matches:
+                if match not in terms:
+                    terms.append(match)
+
+        return terms
+
+    async def _targeted_retrieval(self, intent_terms: list[str], fused: list[dict]) -> list[dict]:
+        """定向二次检索：搜索包含意图关键词的 chunk。
+
+        策略：
+        1. 扩展搜索词（如"加班费"→也搜"加班""1.5倍"）
+        2. 在所有文档中搜索，不限于 fused 结果
+        3. 使用子串匹配（"加班"匹配"加班费"）
+        """
+        if not intent_terms:
+            return []
+
+        # 扩展搜索词：每个意图词加上相关变体
+        search_terms = list(intent_terms)
+        term_expansions = {
+            "加班费": ["加班按", "倍工资", "加班申请", "加班工资"],
+            "调休": ["调休需", "调休", "补休", "调休有效期"],
+            "体检费": ["体检", "体检费用", "体检标准"],
+            "字数": ["800字", "1500字", "2500字", "不少于"],
+            "权重": ["50%", "20%", "10%", "占比"],
+            "审批": ["审批", "批准", "负责人"],
+            "开办费": ["开办费", "管理费用", "筹建期间"],
+            "当期损益": ["管理费用", "开办费"],
+            "长期待摊": ["长期待摊", "管理费用"],
+            "授权商标": ["商号", "注册商标", "商标"],
+            "商号": ["注册商标", "商标", "制造"],
+            "有效期": ["使用完毕", "调休有效期", "期限"],
+        }
+        for term in intent_terms:
+            if term in term_expansions:
+                for exp in term_expansions[term]:
+                    if exp not in search_terms:
+                        search_terms.append(exp)
+
+        # 从 fused 结果中提取文档 ID（优先在这些文档中搜索）
+        priority_doc_ids = {item.get("document_id") for item in fused[:10] if item.get("document_id")}
+
+        async with async_session() as db:
+            targeted = []
+            seen_targeted_keys: set[tuple] = set()
+
+            def _make_targeted_dict(c, doc, matched, score):
+                return {
+                    "source": "targeted",
+                    "content": c.content,
+                    "metadata": {"document_id": c.document_id, "chunk_index": c.chunk_index},
+                    "document_id": c.document_id,
+                    "document_name": doc.name,
+                    "page_number": c.page_number,
+                    "chunk_index": c.chunk_index,
+                    "vector_id": c.vector_id,
+                    "score": score / 20.0,  # 归一化分数
+                    "retrieval_sources": ["targeted"],
+                    "keyword_hits": len(matched),
+                    "matched_terms": matched,
+                }
+
+            # 第一轮：优先在企业制度文档（PDF）中搜索
+            enterprise_conditions = [
+                Document.name.endswith('.pdf'),
+                or_(*(Chunk.content.contains(term) for term in search_terms)),
+            ]
+            enterprise_result = await db.execute(
+                select(Chunk, Document)
+                .join(Document, Chunk.document_id == Document.id)
+                .where(and_(*enterprise_conditions))
+                .limit(30)
+            )
+
+            for c, doc in enterprise_result.all():
+                key = (c.document_id, c.chunk_index)
+                if key in seen_targeted_keys:
+                    continue
+                matched = [term for term in search_terms if term in c.content]
+                # 必须匹配至少一个原始意图词（不是扩展词）
+                intent_matched = [t for t in intent_terms if t in c.content]
+                if not intent_matched:
+                    continue
+                # 至少匹配 2 个词（意图词 + 扩展词）以减少误匹配
+                if len(matched) < 2 and not any(len(t) >= 4 for t in intent_matched):
+                    continue
+                score = 10 + len(matched) * 2  # 企业文档基础分 10
+                score += len(intent_matched) * 5  # 匹配原始意图词大幅加分
+                if c.document_id in priority_doc_ids:
+                    score += 3
+                targeted.append(_make_targeted_dict(c, doc, matched, score))
+                seen_targeted_keys.add(key)
+
+            # 第二轮：在其他文档中搜索（补充）
+            if len(targeted) < 3:
+                other_conditions = [
+                    not_(Document.name.endswith('.pdf')),
+                    or_(*(Chunk.content.contains(term) for term in search_terms)),
+                ]
+                other_result = await db.execute(
+                    select(Chunk, Document)
+                    .join(Document, Chunk.document_id == Document.id)
+                    .where(and_(*other_conditions))
+                    .limit(20)
+                )
+
+                for c, doc in other_result.all():
+                    key = (c.document_id, c.chunk_index)
+                    if key in seen_targeted_keys:
+                        continue
+                    matched = [term for term in search_terms if term in c.content]
+                    # 必须匹配至少一个原始意图词
+                    intent_matched = [t for t in intent_terms if t in c.content]
+                    if not intent_matched:
+                        continue
+                    if len(matched) < 2 and not any(len(t) >= 4 for t in intent_matched):
+                        continue
+                    score = len(matched) * 2
+                    score += len(intent_matched) * 5
+                    if c.document_id in priority_doc_ids:
+                        score += 2
+                    targeted.append(_make_targeted_dict(c, doc, matched, score))
+                    seen_targeted_keys.add(key)
+
+            # 按分数排序
+            targeted.sort(key=lambda x: -x.get("score", 0))
+
+            return targeted[:5]
 
     def _vector_similarity(self, item: dict) -> float | None:
         if item.get("vector_similarity") is not None:

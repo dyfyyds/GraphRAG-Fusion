@@ -9,7 +9,7 @@ from app.parsers.pdf_parser import PDFParser
 from app.parsers.docx_parser import DocxParser
 from app.parsers.txt_parser import TxtParser
 from app.parsers.md_parser import MdParser
-from app.parsers.chunker import chunk_text, is_structural_chunk
+from app.parsers.chunker import chunk_text, is_structural_chunk, strip_breadcrumb
 from app.core.embedding_client import get_embedding_client
 from app.core.runtime_config import get_chunk_runtime_config
 from app.db.chroma import get_or_create_collection
@@ -31,7 +31,8 @@ def _map_page(chunk: str, page_map: list[dict]) -> int | None:
     """根据 chunk 内容的前30字符在 page_map 中定位源页码"""
     if not page_map:
         return None
-    needle = chunk[:30].strip()
+    # 面包屑前缀是切分时附加的，不存在于原文，需剥离后再匹配页码
+    needle = strip_breadcrumb(chunk)[:30].strip()
     for p in page_map:
         if needle in p.get("text", ""):
             return p.get("page")

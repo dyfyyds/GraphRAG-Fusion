@@ -1,0 +1,111 @@
+{
+  "description": "四大问题专项验证用例。expected_keywords 锚定测试文档原文条款；min_hit_ratio 为关键词最低命中率；check_breadcrumb 验证引用分块携带【所属章节】层级面包屑；probe_graph 直接探测图谱多跳路径；repeat 验证向量缓存生效。",
+  "cases": [
+    {
+      "id": "T1-1",
+      "issue": "问题1-多跳推理",
+      "question": "员工早上9点40分才打卡，当天会被怎么处理？如果他这个月已经累计旷工四天半，公司可以解除劳动合同吗？",
+      "expected_keywords": ["旷工半日", "解除劳动合同", "5日"],
+      "expected_doc_any": ["考勤管理制度"],
+      "min_hit_ratio": 0.6,
+      "probe_graph": true,
+      "rationale": "需串联 第七条(9:30以后打卡按旷工半日处理) → 第十条(累计旷工5日以上可解除合同)，4.5+0.5=5日，两步推理"
+    },
+    {
+      "id": "T1-2",
+      "issue": "问题1-多跳推理",
+      "question": "迟到和旷工是什么关系？什么情况下迟到会升级为旷工？",
+      "expected_keywords": ["9:30", "旷工半日", "迟到"],
+      "expected_doc_any": ["考勤管理制度"],
+      "min_hit_ratio": 0.6,
+      "probe_graph": true,
+      "rationale": "概念A(迟到)与概念D(旷工)的中间链条：迟到→严重迟到→9:30后→按旷工半日处理(第七条/第九条)"
+    },
+    {
+      "id": "T1-3",
+      "issue": "问题1-多跳推理",
+      "question": "休息日加班没来得及调休，过了三个月会怎么样？这种情况加班费按多少倍算？",
+      "expected_keywords": ["3个月", "加班工资", "2倍"],
+      "expected_doc_any": ["考勤管理制度"],
+      "min_hit_ratio": 0.6,
+      "rationale": "第十四条(调休3个月内使用完毕,逾期按加班工资结算) → 第十三条(休息日加班2倍工资)，跨条款两跳"
+    },
+    {
+      "id": "T1-4",
+      "issue": "问题1-多跳推理",
+      "question": "总公司投标时使用分公司的资质、业绩和人员证明材料，采购人能认可吗？",
+      "expected_keywords": ["分公司", "法人资格", "民事责任"],
+      "expected_doc_any": ["公司法", "政府采购法"],
+      "min_hit_ratio": 0.6,
+      "probe_graph": true,
+      "rationale": "跨文档多跳：公司法(分公司不具有法人资格,民事责任由公司承担) + 政府采购法(供应商资质/业绩) + 实施条例(评审依据)"
+    },
+    {
+      "id": "T2-1",
+      "issue": "问题2-层级面包屑",
+      "question": "调休需要在多长时间内使用完毕？逾期未调休怎么办？",
+      "expected_keywords": ["3个月", "加班工资"],
+      "expected_doc_any": ["考勤管理制度"],
+      "min_hit_ratio": 1.0,
+      "check_breadcrumb": true,
+      "rationale": "答案在 第七章 加班管理 > 第十四条；引用分块应携带【所属章节：第七章 加班管理】"
+    },
+    {
+      "id": "T2-2",
+      "issue": "问题2-层级面包屑",
+      "question": "出差住宿费的上限标准是多少？一线、二线和其他城市分别多少钱一晚？",
+      "expected_keywords": ["300", "220", "180"],
+      "expected_doc_any": ["差旅报销管理制度"],
+      "min_hit_ratio": 1.0,
+      "check_breadcrumb": true,
+      "rationale": "答案在 第四章 住宿费用标准 > 第七条；面包屑应为【所属章节：第四章 住宿费用标准】"
+    },
+    {
+      "id": "T2-3",
+      "issue": "问题2-层级面包屑",
+      "question": "年终总结的字数要求是多少？员工、经理、总监分别不少于多少字？",
+      "expected_keywords": ["800", "1500", "2500"],
+      "expected_doc_any": ["年终总结"],
+      "min_hit_ratio": 1.0,
+      "check_breadcrumb": true,
+      "rationale": "答案在 第二章 总结内容要求 > 第六条 总结格式"
+    },
+    {
+      "id": "T3-1",
+      "issue": "问题3-上下文预算",
+      "question": "请汇总以下标准：员工体检费用标准（男/女）、差旅住宿费三档上限、出差市内交通每日上限、出差通讯费每月上限，以及年终评优中优秀员工奖和最佳团队奖的奖金金额。",
+      "expected_keywords": ["500", "600", "300", "220", "180", "50", "100", "5000", "20000"],
+      "expected_doc_any": [],
+      "min_hit_ratio": 0.7,
+      "rationale": "跨3个文档的高召回问题，验证预算制组装在8000字符内容纳多文档分块且语义单元完整(数字事实不丢失)"
+    },
+    {
+      "id": "T3-2",
+      "issue": "问题3-上下文预算",
+      "question": "新员工入职需要提交哪些材料？请逐项完整列出。",
+      "expected_keywords": ["身份证", "学历", "照片", "解除劳动关系", "银行卡", "体检报告"],
+      "expected_doc_any": ["新员工入职手册"],
+      "min_hit_ratio": 0.8,
+      "rationale": "列表型答案（第五条六项材料），验证句子边界截断不会把清单从中间切断导致漏项"
+    },
+    {
+      "id": "T4-1",
+      "issue": "问题4-效率",
+      "question": "公司年假是怎么规定的？工龄不同分别有几天？",
+      "expected_keywords": ["5天", "10天", "15天"],
+      "expected_doc_any": ["考勤管理制度", "新员工入职手册"],
+      "min_hit_ratio": 0.6,
+      "repeat": true,
+      "rationale": "同一问题连问两次：第二次检索阶段应命中查询向量LRU缓存，检索耗时显著下降"
+    },
+    {
+      "id": "T4-2",
+      "issue": "问题4-效率",
+      "question": "在客户现场可以用个人微信给同事传客户的数据库结构文档吗？需要拷贝数据时能用自己的U盘吗？",
+      "expected_keywords": ["加密", "微信", "U盘", "审批"],
+      "expected_doc_any": ["客户现场安全保密规定"],
+      "min_hit_ratio": 0.7,
+      "rationale": "多关键词长问题，验证图谱关键词并行检索与关键词条件上限下的整体检索延迟（记录耗时）"
+    }
+  ]
+}

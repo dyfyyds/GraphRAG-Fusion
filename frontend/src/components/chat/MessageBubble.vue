@@ -42,6 +42,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import markdownit from 'markdown-it'
+import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -77,7 +78,7 @@ const userStore = useUserStore()
 const feedback = ref(props.message.feedback || null)
 const sourcesExpanded = ref(false)
 
-const renderedContent = computed(() => md.render(props.message.content || ''))
+const renderedContent = computed(() => DOMPurify.sanitize(md.render(props.message.content || '')))
 const sourceItems = computed(() => props.message.sources?.items || [])
 
 const avatarText = computed(() => {

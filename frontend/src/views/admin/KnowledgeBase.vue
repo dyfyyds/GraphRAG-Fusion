@@ -325,12 +325,29 @@ function removeUploadFile(index) {
 // 并发上传数：多个文件同时上传（避免一次性几十个请求压垮服务，限制为 5）
 const UPLOAD_CONCURRENCY = 5
 
-async function uploadOne(file) {
-  const formData = new FormData()
-  formData.append('file', file)
-  await request.post('/documents/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+async function uploadOne(file, maxRetries = 5) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await request.post('/documents/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return // 成功，直接返回
+    } catch (error) {
+      // 如果是 429 限流且还有重试机会，等待后重试
+      if (error?.response?.status === 429 && attempt < maxRetries) {
+        // 从 Retry-After 头或指数退避计算等待时间
+        const retryAfter = parseInt(error.response.headers?.['retry-after'])
+        const delay = retryAfter
+          ? retryAfter * 1000
+          : Math.min(1000 * Math.pow(2, attempt), 10000) // 指数退避，最大 10 秒
+        await new Promise(r => setTimeout(r, delay))
+        continue
+      }
+      throw error // 非 429 错误或重试用尽，抛出
+    }
+  }
 }
 
 async function startUpload() {
@@ -347,8 +364,7 @@ async function startUpload() {
   // 并发上传：用固定数量的 worker 从队列里取文件，互不阻塞
   let cursor = 0
   let success = 0
-  let failed = 0
-  const failedNames = []
+  const failedFiles = []
 
   async function worker() {
     while (cursor < files.length) {
@@ -357,8 +373,7 @@ async function startUpload() {
         await uploadOne(file)
         success++
       } catch (error) {
-        failed++
-        failedNames.push(file.name)
+        failedFiles.push(file)
         console.error('上传失败:', file.name, error)
       }
     }
@@ -371,10 +386,17 @@ async function startUpload() {
   await Promise.all(workers)
 
   await loadDocuments()
-  if (failed === 0) {
+  if (failedFiles.length === 0) {
     ElMessage.success(`全部 ${success} 个文件上传完成`)
   } else {
-    ElMessage.warning(`上传完成：成功 ${success} 个，失败 ${failed} 个（${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? ' 等' : ''}）`)
+    // 失败的文件保留下来，重新放回上传列表并打开弹窗，方便用户一键重试
+    // （合并时按文件名去重，避免与上传期间用户新添加的文件重复）
+    const existingNames = new Set(uploadFiles.value.map(f => f.name))
+    const retained = failedFiles.filter(f => !existingNames.has(f.name))
+    uploadFiles.value = [...retained, ...uploadFiles.value]
+    showUploadModal.value = true
+    const names = failedFiles.map(f => f.name)
+    ElMessage.warning(`上传完成：成功 ${success} 个，失败 ${failedFiles.length} 个（${names.slice(0, 3).join('、')}${names.length > 3 ? ' 等' : ''}）。失败文件已保留，可点击“开始上传”重试`)
   }
 }
 

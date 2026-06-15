@@ -194,6 +194,7 @@ const spriteTextureCache = new Map()
 const geometryCache = new Map()
 let lastGraphSignature = ''
 let animationFrameTick = 0
+let lastRenderTime = 0
 
 const PERFORMANCE_LIMITS = {
   mediumNodeCount: 180,
@@ -360,7 +361,7 @@ function buildRenderedGraph(entities, relations, selectedEntity, stats) {
 }
 
 // 3D Force Relaxation Layout to prevent clumping and overlap of planets/text labels
-function runSimple3DForceLayout(nodes, relations, iterations = 130) {
+function runSimple3DForceLayout(nodes, relations, iterations = 90) {
   // 1. Initialize positions with a small noise around their galaxy centers if not preset
   nodes.forEach((node, index) => {
     if (hasCoordinates(node.raw)) return
@@ -728,7 +729,7 @@ function initScene() {
   camera.position.set(0, 0, 185)
 
   renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 0.92
@@ -860,7 +861,7 @@ function createDust() {
   const colors = []
 
   // Global subtle stars
-  const globalCount = 900
+  const globalCount = 600
   for (let i = 0; i < globalCount; i++) {
     const radius = 180 + Math.random() * 450
     const theta = Math.random() * Math.PI * 2
@@ -878,7 +879,7 @@ function createDust() {
   Object.keys(GALAXIES).forEach((key) => {
     const galaxy = GALAXIES[key]
     const color = new THREE.Color(galaxy.color)
-    const pCount = 120
+    const pCount = 80
     for (let j = 0; j < pCount; j++) {
       const u = Math.random()
       const r = (u * u) * 25 + 2.5
@@ -1044,18 +1045,16 @@ function createPlanet(node) {
 
   // 1. Layered planet body: dark glass shell + controlled emissive edge, not a blown-out light blob.
   const sphereGeom = getCachedGeometry(`sphere:${roundedRadius}:${sphereSegments}:${sphereRings}`, () => new THREE.SphereGeometry(roundedRadius, sphereSegments, sphereRings))
-  const sphereMat = new THREE.MeshPhysicalMaterial({
+  // 性能：用 MeshStandardMaterial 替代 MeshPhysicalMaterial，去掉 transmission/clearcoat
+  // 触发的额外透射渲染 pass（最贵的一项材质开销），外观基本一致。
+  const sphereMat = new THREE.MeshStandardMaterial({
     color: darkColor,
     emissive: color,
-    emissiveIntensity: node.weight >= 8 ? 0.24 : 0.12,
-    roughness: 0.34,
-    metalness: 0.08,
-    transmission: 0.2,
-    thickness: 0.65,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.18,
+    emissiveIntensity: node.weight >= 8 ? 0.26 : 0.14,
+    roughness: 0.4,
+    metalness: 0.1,
     transparent: true,
-    opacity: 0.88,
+    opacity: 0.9,
     depthWrite: false
   })
   const sphere = new THREE.Mesh(sphereGeom, sphereMat)
@@ -1392,7 +1391,7 @@ function createPlanetSurfaceSpeckles(node, radius, color) {
   const positions = []
   const colors = []
   const seed = hash(`speckles:${node.name}`)
-  const count = node.weight >= 8 ? 42 : 24
+  const count = node.weight >= 8 ? 28 : 16
   for (let i = 0; i < count; i++) {
     const theta = Math.PI * 2 * Math.abs(signedNoise(seed, i + 3))
     const phi = Math.PI * (0.24 + Math.abs(signedNoise(seed, i + 9)) * 0.52)
@@ -1426,7 +1425,7 @@ function createPlanetSurfaceSpeckles(node, radius, color) {
 function createLocalDustCluster(node, radius, color) {
   const positions = []
   const colors = []
-  const particleCount = Math.min(110, 26 + Math.round(node.weight * 4) + node.relationCount * 8)
+  const particleCount = Math.min(70, 20 + Math.round(node.weight * 3) + node.relationCount * 6)
   const seed = hash(`dust:${node.name}`)
   for (let i = 0; i < particleCount; i++) {
     const ringBias = i / particleCount
@@ -1913,12 +1912,19 @@ function resize() {
   renderer.setSize(width, height, false)
   labelRenderer.setSize(width, height)
   composer.setSize(width, height)
+  // Bloom 以半分辨率渲染：泛光本就柔和，半分辨率几乎无感却显著省 GPU。
+  composer.passes[1]?.setSize?.(Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2)))
 }
 
-function animate() {
+function animate(now = 0) {
   animationId = requestAnimationFrame(animate)
+  // 自适应帧率上限：大图(low/ultra)封顶 30fps，其余 60fps。
+  // 高刷屏(120/144Hz)下不再每秒空跑 120-144 次重负载管线——这正是“目标拉到120帧反而更卡”的根因。
+  const targetFps = (renderQuality.value === 'low' || renderQuality.value === 'ultra') ? 30 : 60
+  if (now - lastRenderTime < 1000 / targetFps) return
+  lastRenderTime = now
   animationFrameTick += 1
-  const elapsed = performance.now() * 0.001
+  const elapsed = now * 0.001
 
   if (dust) {
     dust.rotation.y += 0.0004

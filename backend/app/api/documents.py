@@ -128,6 +128,13 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db), user:
     return result
 
 
+@router.post("/cleanup-orphans")
+async def cleanup_orphaned_data(db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    """清理孤儿数据（Neo4j/ChromaDB 中残留的已删除文档数据）"""
+    result = await document_service.cleanup_orphaned_data(db)
+    return result
+
+
 @router.post("/{doc_id}/reparse", response_model=DocumentOut)
 async def reparse_document(doc_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     doc = await document_service.get_document(db, doc_id)
