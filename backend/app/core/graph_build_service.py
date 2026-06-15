@@ -13,44 +13,52 @@ from app.models.system_config import SystemConfig
 
 logger = logging.getLogger("app")
 
-# ── 系统提示词：实体抽取 ──────────────────────────────────────────
+# ── 系统提示词：实体抽取（通用领域，细粒度）──────────────────────
 EXTRACT_SYSTEM_PROMPT = """## 1. 任务
-你是企业法规/制度知识图谱抽取器。请从文本中抽取可用于问答检索的细粒度实体、关系和同义词。
-你的目标不是只保留少量总括节点，而是保留用户可能提问的法律依据、业务对象、条件、材料、例外和证明要求。
+你是一个通用领域的知识图谱抽取器，适用于任意文本：法律法规、企业制度、科技工程、新闻时事、历史人文、自然科学、产品文档、学术论文等。
+请从文本中抽取细粒度、可独立检索的实体、关系和同义词，目标是覆盖读者可能据此提问的全部关键对象，而不是只保留少量笼统的概括节点。
 
-## 2. 实体粒度
-- 实体必须是可独立检索的名词性对象，名称优先使用原文中的完整表达。
-- 对法规政策文本，优先抽取这些类型：法规、文件、条款、章节、附件、主体、机构、职责、条件、材料、资质、资格、能力、行为、流程、标准、范围、例外、禁止、期限、金额、比例、项目、服务、系统、凭证、责任。
-- 对财会/采购/行政事业文本，特别保留：政府采购、招标文件、评审标准、资格审查、供应商、采购人、总公司、分公司、资质证明、业绩证明、设备证明、人员证明、授权文件、劳动合同、社保材料、行政事业性收费项目、政府会计准则、小企业会计准则、工会经费、会费、非税收入、票据、资产核算、账务处理等实体。
-- 对 800-1800 字的普通段落，通常应抽取 8-25 个实体和 8-30 条关系；如果只输出 2-3 个实体，说明抽取过粗。
-- 不要把普通谓语、半句话、连接词开头的片段抽成实体。例如不要输出"进一步规范""以下情形""应当提交以下材料"。遇到"但下列行政事业性收费项目"这类片段，应抽取真实名词实体"行政事业性收费项目"。
-{entity_types_section}
+## 2. 领域自适应：先判断领域，再选类型
+- 先判断文本主题领域，再选择贴合该领域的实体类型；不要把所有文本都套用同一套标签。
+- 通用实体类型（按领域取用，可自行扩展）：
+  - 人物、组织机构、地点、时间或日期、事件
+  - 概念或术语、理论或方法、技术或工具、产品或系统、作品或文献
+  - 物质、物种、生物结构、自然现象（科技与自然类）
+  - 法规、条款、制度、主体、职责、条件、材料、资质（法律与制度类）
+  - 指标或数值、金额、比例、流程或步骤、标准或规范、范围、例外
+- 实体必须是名词性、可独立检索的对象，名称优先使用原文中最完整的表达。{entity_types_section}
 
-## 3. 数值、日期和条款
-- 日期、金额、比例、数量通常作为相关实体的 properties，例如 effectiveDate、amount、ratio、articleNumber。
-- 但是，如果原文中存在可检索的约束名词，如"80%的比例""收费项目""期限要求""限额标准"，可以把约束对象作为实体，并把具体数字放入 properties。
-- 条款号（如"第二十二条"、"第十七条"）应作为条款实体，并与所属法规建立关系。
+## 3. 抽取粒度：要细、要全
+- 对 800-1800 字的段落，通常应抽取 10-30 个实体和 8-30 条关系；若只输出 2-3 个实体，说明抽取过粗，请重新细化。
+- 既抽取主干概念，也抽取其属性对象、组成部分、相关条件、参与者、产物等可被追问的细节。
+- 数值、日期、金额、比例优先作为相关实体的 properties（如 date、amount、ratio、number）；但若存在可检索的约束名词（如“80%的比例”“收费项目”“三年期限”），可将约束对象作为实体，数字放入 properties。
+- 条款号（如“第二十二条”“第十七条”）在法规文本中应作为条款实体，并与所属法规建立关系。
 
-## 4. 共指和同义词
-- 同一实体在文本中有全称、简称、代称时，实体名称使用最完整的标识符。
-- 将简称和常见问法写入 synonyms，例如"社会保障资金"和"社保"、"中华人民共和国政府采购法"和"政府采购法"。
-- 不要编造文本外不存在或不常见的同义词。
+## 4. 不要抽取的内容：保证精确度
+- 不要把谓语、半句话、连接词开头的片段当作实体，例如“进一步规范”“以下情形”“应当提交以下材料”“可以要求”。
+- 遇到“但下列收费项目”“以及相关材料”这类片段，应抽取其中真实的名词实体。
+- 不要输出过于宽泛、无检索价值的孤立词，例如“内容”“方面”“情况”“问题”。
 
-## 5. 关系
-- 关系必须来自文本语义，方向准确，类型使用简洁动词或动词短语。
-- 优先识别：发布、引用、规定、包含、适用、要求、提供、证明、约束、承担、设立、不具有、认可、例外、禁止、关联、属于、依据、废止、施行。
-- 条款与法规使用"规定"或"包含"；主体与材料/条件使用"要求"、"提供"、"证明"；文件与条款/附件使用"包含"；旧制度与新制度使用"废止"、"衔接"、"引用"。
-{relation_types_section}
+## 5. 共指与同义词
+- 同一实体有全称、简称、代称时，name 用最完整的标识符，并把简称和常见问法写入 synonyms。
+- 例如“中华人民共和国政府采购法”与“政府采购法”、“人工智能”与“AI”、“万有引力定律”与“万有引力”。
+- 不要编造文本中不存在或不常见的同义词。
 
-## 6. 输出纪律
-只输出 JSON。不得输出解释文字。实体、关系、同义词字段都必须存在。description 用 15-40 字概括该实体或关系在本文中的作用，不要整句复制原文。"""
+## 6. 关系
+- 关系必须来自文本语义，方向准确，类型用简洁的动词或动词短语。
+- 通用关系示例：属于、包含、组成、位于、隶属、提出、发现、发明、使用、依赖、导致、影响、规定、要求、提供、适用、引用、衔接、废止、对立、合作。
+- 只在已抽取的实体之间建立关系，避免悬空端点。{relation_types_section}
+
+## 7. 输出纪律
+只输出 JSON，不得输出解释文字。entities、relations、synonyms 三个字段都必须存在，可为空数组。
+description 用 15-40 字概括该实体或关系在本文中的作用，不要整句复制原文。"""
 
 # ── 用户消息模板 ──────────────────────────────────────────────────
 EXTRACT_USER_TEMPLATE = """使用给定的格式从以下输入中提取信息：
 
 {text}
 
-提示：请务必输出正确格式的完整 JSON，不要遗漏任何字段。请优先做细粒度抽取，覆盖条款、主体、条件、材料、例外、标准、金额比例等可检索对象。
+提示：请务必输出格式正确的完整 JSON，不要遗漏任何字段。请优先做细粒度抽取，覆盖文中出现的人物、组织、概念、术语、技术、事件、条款、条件、数值比例等一切可检索对象。
 description 必须是对该实体在本文中角色或含义的简短概括（15-40字），不要复制原文。
 
 只输出 JSON，不要其他内容：
@@ -528,12 +536,14 @@ async def _write_graph(data: dict, document_id: int) -> tuple[int, int]:
     driver = await get_neo4j_driver()
 
     # 关键：每个写操作独立 auto-commit，避免并发文档 MERGE 同一节点时 ExclusiveLock 死锁
+    # 注意：document_id 仅在首次创建时写入，避免共享实体被后续文档覆盖导致删除时孤儿残留
     async def _merge_entity(name, etype, desc, props_str):
         async with driver.session() as session:
             await session.run(
                 "MERGE (e:Entity {name: $name}) "
+                "ON CREATE SET e.document_id = $doc_id "
                 "SET e.type = $type, e.description = $desc, e.status = 'pending', "
-                "e.document_id = $doc_id, e.properties = $props",
+                "e.properties = $props",
                 name=name, type=etype, desc=desc, doc_id=document_id, props=props_str,
             )
 
@@ -587,8 +597,11 @@ async def _write_graph(data: dict, document_id: int) -> tuple[int, int]:
     return len(entities), len(relations)
 
 
-async def extract_and_build(text: str, document_id: int) -> dict:
-    """LLM 抽取实体/关系/同义词 -> Neo4j 写入（待审核状态）"""
+async def extract_graph_data(text: str, doc_label: str | int = "?") -> dict:
+    """纯抽取：LLM 分段抽取 + 规则补充 + 兜底，返回 {entities, relations, synonyms}，不写库。
+
+    供文档解析（extract_and_build）与图谱导入（prose 文件回退 graph_import_service）共用。
+    """
     kg_config = await _load_kg_config()
     entity_types = kg_config.get("entity_types", "")
     relation_types = kg_config.get("relation_types", "")
@@ -596,15 +609,8 @@ async def extract_and_build(text: str, document_id: int) -> dict:
     max_chars = max(800, min(configured_max_chars, 2600))
     min_entities = int(kg_config.get("min_entities_per_document", 12))
 
-    if entity_types:
-        entity_types_section = f"\n- **允许的节点标签：**{entity_types}"
-    else:
-        entity_types_section = ""
-
-    if relation_types:
-        relation_types_section = f"\n- **允许的关系类型：**{relation_types}"
-    else:
-        relation_types_section = ""
+    entity_types_section = f"\n- **允许的节点标签：**{entity_types}" if entity_types else ""
+    relation_types_section = f"\n- **允许的关系类型：**{relation_types}" if relation_types else ""
 
     system_prompt = EXTRACT_SYSTEM_PROMPT.format(
         entity_types_section=entity_types_section,
@@ -613,7 +619,7 @@ async def extract_and_build(text: str, document_id: int) -> dict:
 
     # 分段落抽取：长文档按结构切段后分批抽取
     sections = _split_text_for_extraction(text, max_chars)
-    logger.info(f"文档 {document_id} 分为 {len(sections)} 段进行实体抽取")
+    logger.info(f"文档 {doc_label} 分为 {len(sections)} 段进行实体抽取")
 
     llm = get_llm_client()
     all_data: dict = {"entities": [], "relations": [], "synonyms": []}
@@ -633,11 +639,11 @@ async def extract_and_build(text: str, document_id: int) -> dict:
                 retries=2,
                 no_timeout=True,
             )
-            logger.info(f"文档 {document_id} 段 {idx+1}/{len(sections)} LLM 抽取响应长度: {len(response)}")
+            logger.info(f"文档 {doc_label} 段 {idx+1}/{len(sections)} LLM 抽取响应长度: {len(response)}")
             section_data = _clean_json_response(response)
             all_data = _merge_extraction_data(all_data, section_data)
         except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"文档 {document_id} 段 {idx+1} 抽取失败: {str(e)[:200]}")
+            logger.warning(f"文档 {doc_label} 段 {idx+1} 抽取失败: {str(e)[:200]}")
             extraction_failed = True
 
     # 合并确定性规则抽取结果：先补法规特例，再补通用领域实体，避免 LLM 抽得过粗。
@@ -650,7 +656,7 @@ async def extract_and_build(text: str, document_id: int) -> dict:
     entity_total = len(all_data.get("entities") or [])
     relation_total = len(all_data.get("relations") or [])
     if entity_total == 0 and relation_total == 0:
-        logger.warning(f"文档 {document_id} LLM 未抽取到任何实体或关系")
+        logger.warning(f"文档 {doc_label} LLM 未抽取到任何实体或关系")
 
     expected_min_entities = max(min_entities, min(80, len(text) // 180))
     if extraction_failed or entity_total < expected_min_entities or relation_total < max(6, expected_min_entities // 2):
@@ -659,10 +665,17 @@ async def extract_and_build(text: str, document_id: int) -> dict:
             all_data = _merge_extraction_data(all_data, fallback_data)
             logger.info(
                 "文档 %s 启用补充抽取: LLM/规则结果 %s 实体 %s 关系, 目标下限 %s",
-                document_id, entity_total, relation_total, expected_min_entities,
+                doc_label, entity_total, relation_total, expected_min_entities,
             )
         except Exception as fallback_err:
-            logger.error(f"文档 {document_id} 降级抽取也失败: {fallback_err}", exc_info=True)
+            logger.error(f"文档 {doc_label} 降级抽取也失败: {fallback_err}", exc_info=True)
+
+    return all_data
+
+
+async def extract_and_build(text: str, document_id: int) -> dict:
+    """LLM 抽取实体/关系/同义词 -> Neo4j 写入（待审核状态）"""
+    all_data = await extract_graph_data(text, doc_label=document_id)
 
     if not all_data.get("entities") and not all_data.get("relations"):
         return {"success": True, "message": "未抽取到实体和关系", "entity_count": 0, "relation_count": 0}

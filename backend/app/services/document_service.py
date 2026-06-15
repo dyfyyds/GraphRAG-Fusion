@@ -188,6 +188,47 @@ async def delete_document(db: AsyncSession, doc_id: int):
     return {"success": True, "message": "文档及相关数据已删除"}
 
 
+async def cleanup_orphaned_data(db: AsyncSession) -> dict:
+    """清理孤儿数据：MySQL 中已删除但 Neo4j/ChromaDB 中残留的图谱和向量数据。"""
+    warnings = []
+
+    # 获取现有文档 ID 列表
+    result = await db.execute(select(Document.id))
+    existing_ids = [row[0] for row in result.fetchall()]
+
+    # 清理 Neo4j 孤儿实体
+    try:
+        graph_result = await graph_service.cleanup_orphaned_entities(existing_ids)
+        if graph_result.get("success"):
+            deleted = graph_result.get("deleted_orphaned", 0) + graph_result.get("deleted_disconnected", 0)
+            if deleted > 0:
+                logger.info(f"清理孤儿图谱实体: {deleted} 个")
+        else:
+            warnings.append(f"图谱清理: {graph_result.get('error')}")
+    except Exception as e:
+        warnings.append(f"图谱清理异常: {e}")
+
+    # 清理 ChromaDB 孤儿向量
+    try:
+        collection = get_or_create_collection()
+        all_data = collection.get(include=["metadatas"])
+        orphaned_ids = []
+        for i, meta in enumerate(all_data.get("metadatas", [])):
+            doc_id = (meta or {}).get("document_id")
+            if doc_id is not None and doc_id not in existing_ids:
+                orphaned_ids.append(all_data["ids"][i])
+        if orphaned_ids:
+            # ChromaDB delete 限制批次大小
+            for batch_start in range(0, len(orphaned_ids), 5000):
+                batch = orphaned_ids[batch_start:batch_start + 5000]
+                await asyncio.to_thread(collection.delete, ids=batch)
+            logger.info(f"清理孤儿向量: {len(orphaned_ids)} 个")
+    except Exception as e:
+        warnings.append(f"向量清理异常: {e}")
+
+    return {"success": True, "existing_docs": len(existing_ids), "warnings": warnings}
+
+
 async def get_chunks(db: AsyncSession, doc_id: int) -> list[Chunk]:
     result = await db.execute(select(Chunk).where(Chunk.document_id == doc_id).order_by(Chunk.chunk_index))
     return list(result.scalars().all())

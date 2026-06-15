@@ -12,6 +12,7 @@
       @search="handleSearch"
       @add-entity="openCreateEntity"
       @add-relation="openCreateRelation"
+      @import="openImport"
     />
 
     <div class="graph-layout">
@@ -261,6 +262,41 @@
         <div class="modal-footer">
           <button class="btn btn-default" @click="closeRelationModal">取消</button>
           <button class="btn btn-primary" @click="submitRelation">{{ editingRelationOriginal ? '保存修改' : '确定添加' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div v-if="showImportModal" class="modal-overlay" @click.self="closeImportModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>导入实体与关系</h3>
+          <svg class="modal-close" viewBox="0 0 24 24" @click="closeImportModal">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </div>
+        <div class="modal-body">
+          <div
+            style="border:2px dashed rgba(125,211,252,0.35);border-radius:10px;padding:28px;text-align:center;cursor:pointer;color:#93c5fd;transition:border-color .2s;"
+            @click="importInputRef?.click()"
+          >
+            <svg viewBox="0 0 24 24" style="width:40px;height:40px;fill:#7dd3fc;"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+            <p style="margin-top:10px;color:#dbeafe;">{{ importFile ? importFile.name : '点击选择文件（JSON / TXT / Word）' }}</p>
+          </div>
+          <input ref="importInputRef" type="file" accept=".json,.txt,.md,.docx,.doc" style="display:none" @change="handleImportFileChange">
+          <div style="margin-top:14px;font-size:12px;color:#94a3b8;line-height:1.8;">
+            <p style="margin:0 0 4px;"><strong style="color:#cbd5e1;">支持格式（自动识别）</strong></p>
+            <p style="margin:0;">· JSON：{ "entities": [...], "relations": [...] }</p>
+            <p style="margin:0;">· TXT：每行一个三元组 &nbsp;源实体 | 关系 | 目标实体 | 描述</p>
+            <p style="margin:0;">· Word：含「源 / 关系 / 目标」三列的表格</p>
+            <p style="margin:0;">· 非结构化正文将自动调用大模型抽取实体关系</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="closeImportModal">取消</button>
+          <button class="btn btn-primary" :disabled="!importFile || importing" @click="submitImport">
+            {{ importing ? '导入中…' : '开始导入' }}
+          </button>
         </div>
       </div>
     </div>
@@ -593,6 +629,53 @@ function closeRelationModal() {
   showAddRelation.value = false
   editingRelationOriginal.value = null
   newRelation.value = createDefaultRelationForm()
+}
+
+// --- Import entities/relations from file ---
+const showImportModal = ref(false)
+const importFile = ref(null)
+const importing = ref(false)
+const importInputRef = ref(null)
+
+function openImport() {
+  importFile.value = null
+  showImportModal.value = true
+}
+
+function closeImportModal() {
+  showImportModal.value = false
+  importFile.value = null
+  importing.value = false
+}
+
+function handleImportFileChange(e) {
+  const file = e.target.files?.[0]
+  if (file) importFile.value = file
+  e.target.value = ''
+}
+
+async function submitImport() {
+  if (!importFile.value || importing.value) return
+  importing.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', importFile.value)
+    const res = await request.post('/graph/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    if (res && res.success === false) {
+      ElMessage.error(res.message || '导入失败')
+      return
+    }
+    const modeLabel = { json: 'JSON', txt: '三元组', 'docx-table': 'Word 表格', llm: '大模型抽取' }[res?.mode] || ''
+    ElMessage.success((res?.message || '导入完成') + (modeLabel ? `（${modeLabel}）` : ''))
+    closeImportModal()
+    await loadGraph()
+  } catch (err) {
+    ElMessage.error('导入失败: ' + (err?.response?.data?.message || err?.response?.data?.detail || err.message || '网络错误'))
+  } finally {
+    importing.value = false
+  }
 }
 
 async function loadGraph(query = '') {

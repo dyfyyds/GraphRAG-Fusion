@@ -11,11 +11,21 @@ from app.exceptions import ValidationError
 
 
 INJECTION_PATTERNS = [
+    # English patterns
     r"ignore\s+(all\s+)?previous\s+instructions",
     r"you\s+are\s+now\s+",
     r"system\s*:\s*",
     r"<\|system\|>",
     r"jailbreak",
+    r"do\s+anything\s+now",
+    r"dan\s+mode",
+    # Chinese patterns
+    r"忽略.{0,10}(之前|以上|所有).{0,10}(指令|提示|规则)",
+    r"你现在是",
+    r"进入.{0,5}(开发者|调试|越狱|无限制).{0,5}模式",
+    r"无视.{0,10}(安全|限制|规则|约束)",
+    r"扮演.{0,10}(角色|助手|AI)",
+    r"输出.{0,10}(系统|原始|初始).{0,10}(提示|prompt)",
 ]
 
 

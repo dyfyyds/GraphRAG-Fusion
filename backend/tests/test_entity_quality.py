@@ -154,6 +154,32 @@ def test_verb_at_start_rejected():
     assert not is_high_quality_entity_name("可以要求供应商提供")
 
 
+def test_accepts_general_domain_entities():
+    """通用领域实体（非法规/财会）也应被接受，适配任意文本抽取。"""
+    for name in ["爱因斯坦", "光合作用", "万有引力定律", "Python", "三体", "长江", "区块链", "细胞膜", "文艺复兴", "神经网络"]:
+        assert is_high_quality_entity_name(name), f"通用实体被误过滤: {name}"
+
+
+def test_still_rejects_generic_stopwords_and_fragments():
+    """放宽领域限制后，仍应拒绝无检索价值的孤立词和谓语片段。"""
+    for name in ["内容", "方面", "情况", "问题", "进一步规范", "以下情形", "应当提交以下材料"]:
+        assert not is_high_quality_entity_name(name), f"噪声词未被过滤: {name}"
+
+
+def test_prompt_template_formats_without_error():
+    """系统提示词应能正常注入类型配置（验证占位符与花括号转义正确）。"""
+    from app.core.graph_build_service import EXTRACT_SYSTEM_PROMPT, EXTRACT_USER_TEMPLATE
+
+    rendered = EXTRACT_SYSTEM_PROMPT.format(
+        entity_types_section="\n- 允许的节点标签：人物、组织",
+        relation_types_section="\n- 允许的关系类型：属于、包含",
+    )
+    assert "知识图谱抽取器" in rendered
+    assert "人物、组织" in rendered
+    user = EXTRACT_USER_TEMPLATE.format(text="示例文本")
+    assert '"entities"' in user and "示例文本" in user
+
+
 def test_properties_in_clean_entity_record():
     """clean_entity_record 应保留 properties 字段"""
     result = clean_entity_record({

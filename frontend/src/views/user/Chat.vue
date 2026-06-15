@@ -75,6 +75,7 @@ import { useUserStore } from '../../store/user'
 import { streamChat } from '../../utils/sse'
 import request from '../../api/request'
 import markdownit from 'markdown-it'
+import DOMPurify from 'dompurify'
 
 const md = markdownit({ html: false, linkify: true })
 const router = useRouter()
@@ -153,7 +154,7 @@ const currentTitle = computed(() => {
 })
 
 function renderMarkdown(text) {
-  return md.render(text || '')
+  return DOMPurify.sanitize(md.render(text || ''))
 }
 
 function handleLogout() {

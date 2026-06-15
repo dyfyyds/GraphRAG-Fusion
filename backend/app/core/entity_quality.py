@@ -129,6 +129,10 @@ BAD_EXACT = {
     "有关事项",
     "相关政策",
 }
+# 过于宽泛、单独成词时无检索价值的通用词（精确匹配才拒绝，不影响复合实体）
+GENERIC_STOPWORDS = {
+    "内容", "方面", "情况", "问题", "其他", "相关", "等", "等等", "如下", "上述",
+}
 BAD_SUFFIXES = (
     "进行",
     "开展",
@@ -197,7 +201,7 @@ def is_high_quality_entity_name(name: str) -> bool:
         return False
     if raw_name.startswith(("以下", "下列", "上述", "前述")) and len(name) <= 2:
         return False
-    if name in BAD_EXACT:
+    if name in BAD_EXACT or name in GENERIC_STOPWORDS:
         return False
     if len(name) < 2 or len(name) > 80:
         return False
@@ -213,17 +217,15 @@ def is_high_quality_entity_name(name: str) -> bool:
         return False
     if name.startswith(("但", "下列", "以下", "进一步")):
         return False
-    # 领域关键字检查（优先于坏后缀，因为合法复合名词常见）
+    # 领域关键字命中：直接通过（快速正向通道）
     if len(name) >= 4 and any(keyword in name for keyword in DOMAIN_KEYWORDS):
         return True
-    # 只对较短名称（<8字）检查坏后缀，长名称可能是合法复合名词
+    # 只对较短名称（<8字）检查坏后缀（如"进一步推进"），长名称可能是合法复合名词
     if len(name) < 8 and name.endswith(BAD_SUFFIXES):
         return False
-    if name.endswith(GOOD_SUFFIXES) or name.endswith(ORG_SUFFIXES):
-        return True
-    if re.search(r"\d", name) and re.search(r"[一-鿿]", name):
-        return True
-    return False
+    # 通用领域默认接受：凡通过上述结构化噪声过滤的名词性词条均视为有效实体，
+    # 不再要求其必须命中法规/财会等特定领域的后缀或关键字（适配任意文本抽取）。
+    return True
 
 
 def clean_entity_record(entity: dict) -> dict | None:

@@ -134,7 +134,7 @@
           </div>
           <div class="qa-bubble answer">
             <div class="role a">AI 回答</div>
-            <span v-html="detailItem.answer || '暂无回答内容'"></span>
+            <span v-html="DOMPurify.sanitize(detailItem.answer || '暂无回答内容')"></span>
           </div>
         </div>
 
@@ -160,6 +160,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import DOMPurify from 'dompurify'
 import {
   ElButton,
   ElCheckbox,
