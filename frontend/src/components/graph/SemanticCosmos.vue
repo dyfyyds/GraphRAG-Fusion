@@ -231,14 +231,12 @@ const relationStats = computed(() => buildRelationStats(props.entities, props.re
 const renderedGraph = computed(() => buildRenderedGraph(props.entities, props.relations, props.selectedEntity, relationStats.value))
 const graphNodes = computed(() => buildNodes(renderedGraph.value.entities, renderedGraph.value.relations, relationStats.value.countByName))
 const graphSignature = computed(() => {
-  const entityPart = (renderedGraph.value.entities || [])
-    .map(entity => `${entity.id ?? ''}:${entity.name ?? ''}:${entity.entity_type ?? entity.type ?? ''}:${entity.weight ?? entity.importance ?? entity.score ?? ''}:${entity.x ?? ''}:${entity.y ?? ''}:${entity.z ?? ''}`)
-    .join('|')
-  const relationPart = (renderedGraph.value.relations || [])
-    .map(rel => `${rel.source ?? rel.source_id ?? ''}>${rel.target ?? rel.target_id ?? ''}:${rel.relation_type ?? rel.rel ?? rel.type ?? ''}`)
-    .join('|')
-  const selectedPart = props.selectedEntity ? `${props.selectedEntity.id || ''}:${props.selectedEntity.name || ''}` : ''
-  return `${entityPart}::${relationPart}::${selectedPart}`
+  // 轻量级签名：只用实体 ID 列表 + 关系数量 + 选中实体，避免拼接全部字段的巨大字符串
+  const ents = renderedGraph.value.entities || []
+  const rels = renderedGraph.value.relations || []
+  const entIds = ents.length > 0 ? ents.map(e => e.id ?? e.name ?? '').join(',') : ''
+  const sel = props.selectedEntity ? `${props.selectedEntity.id || ''}` : ''
+  return `${ents.length}:${rels.length}:${hash(entIds)}:${sel}`
 })
 
 const renderQuality = computed(() => {
@@ -361,7 +359,7 @@ function buildRenderedGraph(entities, relations, selectedEntity, stats) {
 }
 
 // 3D Force Relaxation Layout to prevent clumping and overlap of planets/text labels
-function runSimple3DForceLayout(nodes, relations, iterations = 90) {
+function runSimple3DForceLayout(nodes, relations, iterations = 28) {
   // 1. Initialize positions with a small noise around their galaxy centers if not preset
   nodes.forEach((node, index) => {
     if (hasCoordinates(node.raw)) return
@@ -376,39 +374,62 @@ function runSimple3DForceLayout(nodes, relations, iterations = 90) {
   })
 
   const nodeByName = new Map(nodes.map(n => [n.name, n]))
-  
+  // 空间网格加速：将空间划分为 cell，只对相邻 cell 内的节点做排斥计算
+  const CELL_SIZE = 50
+  const cellMap = new Map()
+  function cellKey(x, y, z) {
+    return `${Math.floor(x / CELL_SIZE)},${Math.floor(y / CELL_SIZE)},${Math.floor(z / CELL_SIZE)}`
+  }
+
   // 2. Relaxation iterations
   for (let iter = 0; iter < iterations; iter++) {
     const displacements = nodes.map(() => new THREE.Vector3(0, 0, 0))
-    
-    // Repulsion between ALL node pairs (avoid clumping/overlapping)
+
+    // 构建空间网格
+    cellMap.clear()
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i]
+      const key = cellKey(n.position.x, n.position.y, n.position.z)
+      if (!cellMap.has(key)) cellMap.set(key, [])
+      cellMap.get(key).push(i)
+    }
+
+    // 只对同 cell 或相邻 cell 的节点对做排斥
+    const offsets = [-1, 0, 1]
     for (let i = 0; i < nodes.length; i++) {
       const nodeA = nodes[i]
-      for (let j = i + 1; j < nodes.length; j++) {
-        const nodeB = nodes[j]
-        const dx = nodeA.position.x - nodeB.position.x
-        const dy = nodeA.position.y - nodeB.position.y
-        const dz = nodeA.position.z - nodeB.position.z
-        
-        let dist = Math.sqrt(dx*dx + dy*dy + dz*dz)
-        if (dist < 0.1) dist = 0.1
-        
-        // Minimum separation distance based on physical planet radius
-        const minSep = (visualRadius(nodeA) + visualRadius(nodeB)) * 4.0 + 22
-        
-        if (dist < minSep) {
-          const force = (minSep - dist) / dist * 0.45 // repulsion strength
-          const pushX = dx * force
-          const pushY = dy * force
-          const pushZ = dz * force
-          
-          displacements[i].x += pushX
-          displacements[i].y += pushY
-          displacements[i].z += pushZ
-          
-          displacements[j].x -= pushX
-          displacements[j].y -= pushY
-          displacements[j].z -= pushZ
+      const cx = Math.floor(nodeA.position.x / CELL_SIZE)
+      const cy = Math.floor(nodeA.position.y / CELL_SIZE)
+      const cz = Math.floor(nodeA.position.z / CELL_SIZE)
+      for (const ox of offsets) for (const oy of offsets) for (const oz of offsets) {
+        const neighbors = cellMap.get(`${cx+ox},${cy+oy},${cz+oz}`)
+        if (!neighbors) continue
+        for (const j of neighbors) {
+          if (j <= i) continue
+          const nodeB = nodes[j]
+          const dx = nodeA.position.x - nodeB.position.x
+          const dy = nodeA.position.y - nodeB.position.y
+          const dz = nodeA.position.z - nodeB.position.z
+
+          let dist = Math.sqrt(dx*dx + dy*dy + dz*dz)
+          if (dist < 0.1) dist = 0.1
+
+          const minSep = (visualRadius(nodeA) + visualRadius(nodeB)) * 4.0 + 22
+
+          if (dist < minSep) {
+            const force = (minSep - dist) / dist * 0.45
+            const pushX = dx * force
+            const pushY = dy * force
+            const pushZ = dz * force
+
+            displacements[i].x += pushX
+            displacements[i].y += pushY
+            displacements[i].z += pushZ
+
+            displacements[j].x -= pushX
+            displacements[j].y -= pushY
+            displacements[j].z -= pushZ
+          }
         }
       }
     }
@@ -929,7 +950,7 @@ function createNebulaClouds() {
   nebulaGroup = new THREE.Group()
   Object.entries(GALAXIES).forEach(([key, galaxy], galaxyIndex) => {
     const color = new THREE.Color(galaxy.color)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const seed = hash(`nebula:${key}:${i}`)
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
         map: getNebulaTexture(),
@@ -1008,7 +1029,7 @@ function createLinks(visibleNames, nodeByName) {
     line.userData.graphLink = { source: endpoint.source, target: endpoint.target, type: endpoint.type }
     linkGroup.add(line)
 
-    if (!allowFlowParticles || flowCount > 420) continue
+    if (!allowFlowParticles || flowCount > 200) continue
 
     // 2. Glowing photon flow particle
     const pulseMat = new THREE.MeshBasicMaterial({
@@ -1035,8 +1056,8 @@ function createPlanet(node) {
   const radius = visualRadius(node)
   const roundedRadius = getRoundedRadius(radius)
   const richPlanet = shouldUseRichPlanet(node)
-  const sphereSegments = richPlanet ? 32 : 16
-  const sphereRings = richPlanet ? 16 : 8
+  const sphereSegments = richPlanet ? 20 : 12
+  const sphereRings = richPlanet ? 12 : 8
   const color = new THREE.Color(node.color)
   const darkColor = color.clone().multiplyScalar(0.34)
   const group = new THREE.Group()
@@ -1064,7 +1085,7 @@ function createPlanet(node) {
 
   // 2. Small inner core, intentionally dim so the 3D form remains readable.
   const coreRadius = getRoundedRadius(radius * 0.26, 0.04)
-  const coreGeom = getCachedGeometry(`core:${coreRadius}:${richPlanet ? 16 : 10}`, () => new THREE.SphereGeometry(coreRadius, richPlanet ? 16 : 10, richPlanet ? 8 : 6))
+  const coreGeom = getCachedGeometry(`core:${coreRadius}:${richPlanet ? 12 : 8}`, () => new THREE.SphereGeometry(coreRadius, richPlanet ? 12 : 8, richPlanet ? 8 : 6))
   const coreMat = new THREE.MeshBasicMaterial({
     color: color.clone().lerp(new THREE.Color('#ffffff'), 0.18),
     transparent: true,
@@ -1078,7 +1099,7 @@ function createPlanet(node) {
 
   // 3. Controlled atmospheric halo.
   const haloRadius = getRoundedRadius(radius * 1.65)
-  const haloGeom = getCachedGeometry(`halo:${haloRadius}:${richPlanet ? 18 : 10}`, () => new THREE.SphereGeometry(haloRadius, richPlanet ? 18 : 10, richPlanet ? 10 : 6))
+  const haloGeom = getCachedGeometry(`halo:${haloRadius}:${richPlanet ? 14 : 8}`, () => new THREE.SphereGeometry(haloRadius, richPlanet ? 14 : 8, richPlanet ? 10 : 6))
   const haloMat = new THREE.MeshBasicMaterial({
     color: color,
     transparent: true,
@@ -1110,7 +1131,7 @@ function createPlanet(node) {
   // 4. Broad glowing Saturnal rings, close to the reference "knowledge planet" look.
   if (richPlanet && (node.weight >= 6.4 || node.relationCount >= 1)) {
     const flatRing = new THREE.Mesh(
-      getCachedGeometry(`flat-ring:${getRoundedRadius(radius * 1.62)}:${getRoundedRadius(radius * 2.35)}`, () => new THREE.RingGeometry(getRoundedRadius(radius * 1.62), getRoundedRadius(radius * 2.35), 96)),
+      getCachedGeometry(`flat-ring:${getRoundedRadius(radius * 1.62)}:${getRoundedRadius(radius * 2.35)}`, () => new THREE.RingGeometry(getRoundedRadius(radius * 1.62), getRoundedRadius(radius * 2.35), 48)),
       new THREE.MeshBasicMaterial({
         color: color,
         side: THREE.DoubleSide,
@@ -1126,7 +1147,7 @@ function createPlanet(node) {
     group.add(flatRing)
 
     const ring = new THREE.Mesh(
-      getCachedGeometry(`main-ring:${getRoundedRadius(radius * 2.05)}:${getRoundedRadius(radius * 0.028, 0.006)}`, () => new THREE.TorusGeometry(getRoundedRadius(radius * 2.05), getRoundedRadius(radius * 0.028, 0.006), 8, 96)),
+      getCachedGeometry(`main-ring:${getRoundedRadius(radius * 2.05)}:${getRoundedRadius(radius * 0.028, 0.006)}`, () => new THREE.TorusGeometry(getRoundedRadius(radius * 2.05), getRoundedRadius(radius * 0.028, 0.006), 6, 48)),
       new THREE.MeshBasicMaterial({
         color: color,
         transparent: true,
@@ -1275,12 +1296,12 @@ function getNebulaTexture() {
 
 function addPlanetSurfaceBands(group, node, radius, color) {
   const seed = hash(`surface:${node.name}`)
-  const bandCount = node.weight >= 8 ? 5 : 4
+  const bandCount = node.weight >= 8 ? 4 : 3
   for (let i = 0; i < bandCount; i++) {
     const bandRadius = radius * (0.74 + i * 0.055)
     const tube = Math.max(0.006, radius * 0.007)
     const band = new THREE.Mesh(
-      new THREE.TorusGeometry(bandRadius, tube, 6, 112),
+      new THREE.TorusGeometry(bandRadius, tube, 6, 48),
       new THREE.MeshBasicMaterial({
         color: color.clone().lerp(new THREE.Color('#ffffff'), 0.2),
         transparent: true,
@@ -1296,10 +1317,10 @@ function addPlanetSurfaceBands(group, node, radius, color) {
     group.add(band)
   }
 
-  const meridianCount = node.weight >= 8 ? 3 : 2
+  const meridianCount = node.weight >= 8 ? 2 : 2
   for (let i = 0; i < meridianCount; i++) {
     const meridian = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 1.015, Math.max(0.006, radius * 0.006), 6, 112),
+      new THREE.TorusGeometry(radius * 1.015, Math.max(0.006, radius * 0.006), 6, 48),
       new THREE.MeshBasicMaterial({
         color: color.clone().lerp(new THREE.Color('#ffffff'), 0.1),
         transparent: true,
@@ -1316,7 +1337,7 @@ function addPlanetSurfaceBands(group, node, radius, color) {
   }
 
   const equator = new THREE.Mesh(
-    new THREE.TorusGeometry(radius * 1.08, Math.max(0.008, radius * 0.009), 8, 144),
+    new THREE.TorusGeometry(radius * 1.08, Math.max(0.008, radius * 0.009), 8, 48),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -1333,7 +1354,7 @@ function addPlanetSurfaceBands(group, node, radius, color) {
   group.add(createPlanetSurfaceSpeckles(node, radius, color))
 
   const terminator = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.006, 48, 24),
+    new THREE.SphereGeometry(radius * 1.006, 24, 16),
     new THREE.MeshBasicMaterial({
       color: '#020617',
       transparent: true,
@@ -1367,10 +1388,10 @@ function addPlanetDetailShell(group, node, radius, color) {
   shell.userData.isWireShell = true
   group.add(shell)
 
-  const arcCount = node.weight >= 8 || node.relationCount >= 3 ? 3 : 2
+  const arcCount = node.weight >= 8 || node.relationCount >= 3 ? 2 : 2
   for (let i = 0; i < arcCount; i++) {
     const arc = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * (1.28 + i * 0.15), Math.max(0.006, radius * 0.006), 6, 128),
+      new THREE.TorusGeometry(radius * (1.28 + i * 0.15), Math.max(0.006, radius * 0.006), 6, 48),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
@@ -1391,7 +1412,7 @@ function createPlanetSurfaceSpeckles(node, radius, color) {
   const positions = []
   const colors = []
   const seed = hash(`speckles:${node.name}`)
-  const count = node.weight >= 8 ? 28 : 16
+  const count = node.weight >= 8 ? 16 : 10
   for (let i = 0; i < count; i++) {
     const theta = Math.PI * 2 * Math.abs(signedNoise(seed, i + 3))
     const phi = Math.PI * (0.24 + Math.abs(signedNoise(seed, i + 9)) * 0.52)
@@ -1425,7 +1446,7 @@ function createPlanetSurfaceSpeckles(node, radius, color) {
 function createLocalDustCluster(node, radius, color) {
   const positions = []
   const colors = []
-  const particleCount = Math.min(70, 20 + Math.round(node.weight * 3) + node.relationCount * 6)
+  const particleCount = Math.min(40, 12 + Math.round(node.weight * 2) + node.relationCount * 3)
   const seed = hash(`dust:${node.name}`)
   for (let i = 0; i < particleCount; i++) {
     const ringBias = i / particleCount
@@ -1722,7 +1743,7 @@ function updateLabelVisibility() {
 
   const hasSelection = !!props.selectedEntity?.name
   const activeNeighborNames = selectedNeighborNames()
-  const maxVisible = hasSelection ? 44 : viewMode.value === 'topology' ? 14 : 22
+  const maxVisible = hasSelection ? 30 : viewMode.value === 'topology' ? 10 : 16
   const candidates = []
   const width = renderer.domElement.clientWidth || 1
   const height = renderer.domElement.clientHeight || 1
@@ -1940,7 +1961,7 @@ function animate(now = 0) {
   }
 
   if (nodeGroup) {
-    const animateEvery = renderQuality.value === 'ultra' ? 4 : renderQuality.value === 'low' ? 3 : 1
+    const animateEvery = renderQuality.value === 'ultra' ? 6 : renderQuality.value === 'low' ? 4 : 2
     animatedPlanetRefs.forEach((item, index) => {
       if (index % animateEvery !== animationFrameTick % animateEvery) return
       const group = item.group
@@ -1960,14 +1981,14 @@ function animate(now = 0) {
   controls.update()
 
   // Real-time hover detection
-  const hoverInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 8
+  const hoverInterval = renderQuality.value === 'high' ? 3 : renderQuality.value === 'medium' ? 6 : 12
   if (animationFrameTick % hoverInterval === 0) updateHoverRaycaster()
 
   // Real-time distance bloom flaring
   updateCameraDistanceGlow()
 
   // Bind labels to planets while hiding distant and low-priority labels.
-  const labelInterval = renderQuality.value === 'high' ? 2 : renderQuality.value === 'medium' ? 4 : 6
+  const labelInterval = renderQuality.value === 'high' ? 3 : renderQuality.value === 'medium' ? 6 : 10
   if (animationFrameTick % labelInterval === 0 || isCameraAnimating) updateLabelVisibility()
 
   composer.render()
@@ -2073,26 +2094,26 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
   white-space: nowrap;
   position: relative;
   opacity: var(--label-opacity, 0);
-  text-shadow: 
+  text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.95),
     0 0 5px color-mix(in srgb, var(--glow-color) 52%, transparent),
     0 0 14px rgba(0, 0, 0, 0.85);
-  background: rgba(2, 6, 23, 0.68);
+  background: rgba(2, 6, 23, 0.88);
   border: 1px solid color-mix(in srgb, var(--glow-color) 36%, transparent);
   border-radius: 6px;
   padding: 4px 7px 4px;
   max-width: 132px;
   overflow: hidden;
   text-overflow: ellipsis;
-  pointer-events: none; /* FIX: Make individual labels transparent to mouse pointer clicks! */
+  pointer-events: none;
   user-select: none;
   position: absolute;
   transform: translate(-50%, -100%);
-  backdrop-filter: blur(10px);
   box-shadow:
     0 8px 22px rgba(0, 0, 0, 0.34),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: opacity 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  will-change: opacity;
 }
 
 :deep(.cosmos-label::after) {
@@ -2109,7 +2130,7 @@ defineExpose({ zoomIn, zoomOut, resetView, fitView })
 
 :deep(.cosmos-label.is-focus),
 :deep(.cosmos-label.is-hovered) {
-  background: rgba(8, 15, 30, 0.86);
+  background: rgba(8, 15, 30, 0.94);
   border-color: color-mix(in srgb, var(--glow-color) 70%, rgba(255, 255, 255, 0.2));
   box-shadow:
     0 12px 28px rgba(0, 0, 0, 0.42),
