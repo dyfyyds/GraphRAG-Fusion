@@ -104,6 +104,7 @@ async def delete_all_documents(db: AsyncSession = Depends(get_db)):
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    parse: bool = Query(True, description="是否在上传后自动开始解析"),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
@@ -118,8 +119,11 @@ async def upload_document(
         f.write(content)
 
     doc = await document_service.upload_document(db, file.filename, file_path, file.filename.rsplit(".", 1)[-1], len(content), int(user["sub"]))
-    background_tasks.add_task(document_service.parse_document, doc.id)
-    return UploadResponse(document_id=doc.id, name=doc.name, status="parsing", message="文件已上传，正在解析")
+    if parse:
+        background_tasks.add_task(document_service.parse_document, doc.id)
+        return UploadResponse(document_id=doc.id, name=doc.name, status="parsing", message="文件已上传，正在解析")
+    else:
+        return UploadResponse(document_id=doc.id, name=doc.name, status="pending", message="文件已上传，待解析")
 
 
 @router.delete("/{doc_id}")

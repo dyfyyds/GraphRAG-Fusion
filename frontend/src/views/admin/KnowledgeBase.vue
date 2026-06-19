@@ -112,8 +112,7 @@
                 >预览</button>
                 <button
                   class="action-btn reparse"
-                  :disabled="row.status === 'parsing' || row.status === 'building_graph'"
-                  @click="(row.status !== 'parsing' && row.status !== 'building_graph') && reparseDoc(row)"
+                  @click="reparseDoc(row)"
                 >{{ row.status === 'pending' ? '解析' : '重解析' }}</button>
                 <button class="action-btn delete" @click="deleteDoc(row)">删除</button>
               </div>
@@ -167,6 +166,9 @@
               <svg class="remove" viewBox="0 0 24 24" @click="removeUploadFile(index)"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
             </div>
           </div>
+          <div class="upload-options" style="margin-top: 16px; text-align: left; padding: 0 4px;">
+            <el-checkbox v-model="autoParse">上传后自动解析</el-checkbox>
+          </div>
         </div>
         <div class="modal-footer">
           <el-button @click="showUploadModal = false">取消</el-button>
@@ -216,6 +218,7 @@ const isDragging = ref(false)
 const uploadFiles = ref([])
 const uploading = ref(false)
 const fileInputRef = ref(null)
+const autoParse = ref(false)
 
 // ---- Computed ----
 const statusCounts = computed(() => {
@@ -330,7 +333,7 @@ async function uploadOne(file, maxRetries = 5) {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      await request.post('/documents/upload', formData, {
+      await request.post(`/documents/upload?parse=${autoParse.value}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       return // 成功，直接返回
@@ -354,12 +357,16 @@ async function startUpload() {
   if (uploadFiles.value.length === 0) return
 
   const files = [...uploadFiles.value]
-  // 上传请求一旦发出，后端即异步解析；这里立即关闭弹窗并清空列表，
-  // 不再等待全部解析完成（解析/图谱构建会在后台进行，列表通过 SSE 自动刷新）
+  // 上传请求一旦发出，这里立即关闭弹窗并清空列表，
+  // 解析/图谱构建会在后台进行（若勾选了自动解析），列表通过 SSE 自动刷新
   uploadFiles.value = []
   showUploadModal.value = false
   uploading.value = false
-  ElMessage.success(`已开始上传 ${files.length} 个文件，解析与图谱构建将在后台进行`)
+  if (autoParse.value) {
+    ElMessage.success(`已开始上传 ${files.length} 个文件，解析与图谱构建将在后台进行`)
+  } else {
+    ElMessage.success(`已开始上传 ${files.length} 个文件，可稍后在列表手动触发解析`)
+  }
 
   // 并发上传：用固定数量的 worker 从队列里取文件，互不阻塞
   let cursor = 0

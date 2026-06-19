@@ -637,7 +637,7 @@ async def extract_graph_data(text: str, doc_label: str | int = "?") -> dict:
                 ],
                 temperature=0.05,
                 retries=2,
-                no_timeout=True,
+                timeout=180,
             )
             logger.info(f"文档 {doc_label} 段 {idx+1}/{len(sections)} LLM 抽取响应长度: {len(response)}")
             section_data = _clean_json_response(response)
